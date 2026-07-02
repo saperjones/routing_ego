@@ -21,12 +21,16 @@ def test_tangent_on_straight_is_unit_east():
     r = Route(pts, [0, 400], [1, 2])
     np.testing.assert_allclose(r.tangents[10], [1.0, 0.0], atol=1e-9)
     assert abs(np.linalg.norm(r.tangents[10]) - 1.0) < 1e-9
+    np.testing.assert_allclose(r.tangents[0], [1.0, 0.0], atol=1e-9)
+    np.testing.assert_allclose(r.tangents[400], [1.0, 0.0], atol=1e-9)
 
 
 def test_lookups_by_arclength():
     pts = _straight(401, 0.1)
     r = Route(pts, [0, 400], [1, 2])
     assert r.index_at_s(10.0) == 100
+    assert r.index_at_s(0.0) == 0
+    assert r.index_at_s(r.length) == 400
     np.testing.assert_allclose(r.point_at_s(10.0), [10.0, 0.0], atol=1e-6)
     np.testing.assert_allclose(r.tangent_at_s(10.0), [1.0, 0.0], atol=1e-9)
 
@@ -37,3 +41,4 @@ def test_segment_labels_split_by_waypoint():
     r = Route(pts, [0, 200, 400], [1, 2, 3])
     assert r.segment_at_s(5.0) == 0
     assert r.segment_at_s(30.0) == 1
+    assert r.segment_at_s(20.0) == 1  # boundary belongs to entering segment

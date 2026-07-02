@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//Users/K6V3P4RC42/.claude/plugins/cache/claude-plugins-official/superpowers/6.1.0/skills/subagent-driven-development/scripts/**)",
+      "Bash(python3 -c \"import numpy; print\\('numpy', numpy.__version__\\)\")"
+    ]
+  }
+}

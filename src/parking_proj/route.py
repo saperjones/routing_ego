@@ -4,6 +4,7 @@ import numpy as np
 
 class Route:
     def __init__(self, points, waypoint_indices, waypoint_labels):
+        assert len(waypoint_indices) >= 2
         self.points = np.asarray(points, dtype=float)
         n = len(self.points)
         seg = np.diff(self.points, axis=0)                      # (N-1, 2)
@@ -24,6 +25,7 @@ class Route:
         self.waypoint_s = [float(self.s[i]) for i in self.waypoint_indices]
 
         # segment id per point: seg k spans waypoint_indices[k]..[k+1]
+        # a point exactly on an interior waypoint belongs to the entering (next) segment
         self.seg_of_index = np.zeros(n, dtype=int)
         for k in range(len(self.waypoint_indices) - 1):
             lo = self.waypoint_indices[k]
