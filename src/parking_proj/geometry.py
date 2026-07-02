@@ -36,6 +36,8 @@ def route_from_dense(dense, waypoints_xy, labels, ds=0.1):
 
 
 def route_from_waypoints(waypoints, labels, ds=0.1):
+    if len(waypoints) < 2:
+        raise ValueError("route_from_waypoints needs >= 2 waypoints")
     waypoints = [np.asarray(w, dtype=float) for w in waypoints]
     legs = []
     for a, b in zip(waypoints[:-1], waypoints[1:]):
@@ -44,4 +46,6 @@ def route_from_waypoints(waypoints, labels, ds=0.1):
     pts = resample(dense, ds=ds)
     idx = [_nearest_index(pts, wp) for wp in waypoints]
     idx[0], idx[-1] = 0, len(pts) - 1
+    if any(idx[k] >= idx[k + 1] for k in range(len(idx) - 1)):
+        raise ValueError("waypoints too close together for the given ds (indices collapsed)")
     return Route(pts, idx, labels)

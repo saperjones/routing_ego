@@ -23,3 +23,13 @@ def test_route_from_waypoints_labels():
     # corner point present near (20,0)
     i = r.index_at_s(20.0)
     np.testing.assert_allclose(r.points[i], [20.0, 0.0], atol=0.1)
+
+
+def test_route_from_dense_smoke():
+    import numpy as np
+    t = np.linspace(0, np.pi, 400)
+    dense = np.column_stack([10 * np.cos(t), 10 * np.sin(t)])  # half circle, r=10
+    r = g.route_from_dense(dense, [(10, 0), (0, 10), (-10, 0)], labels=[1, 2, 3])
+    assert r.waypoint_labels[:1] == [1]
+    assert abs(r.length - np.pi * 10) < 0.2
+    assert r.waypoint_indices[0] == 0 and r.waypoint_indices[-1] == len(r.points) - 1
