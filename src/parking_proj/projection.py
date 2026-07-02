@@ -14,17 +14,12 @@ class ProjectionResult:
     gate_widened: bool
 
 
-def _ang_diff(a, b):
-    d = (a - b + math.pi) % (2 * math.pi) - math.pi
-    return abs(d)
-
-
 class Projector:
     def __init__(self, route, ahead=20.0, behind=-5.0,
                  w_search=3.5, eps_back=0.3, gate_deg=60.0):
         self.route = route
         self.ahead = ahead
-        self.behind = behind
+        self.behind = behind  # emit-window bounds consumed downstream (viewer/generate), not used in matching
         self.w_search = w_search
         self.eps_back = eps_back
         self.gate = math.radians(gate_deg)
@@ -33,10 +28,6 @@ class Projector:
     def reset(self):
         self.cursor_s = None
         self.initialized = False
-
-    def _tangent_yaw(self, i):
-        t = self.route.tangents[i]
-        return math.atan2(t[1], t[0])
 
     def _best_in_range(self, pos_e, pos_n, yaw, lo_s, hi_s):
         r = self.route
