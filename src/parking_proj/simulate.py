@@ -47,7 +47,13 @@ def _gauss_kernel(win):
 
 def _smooth(a, win):
     k = _gauss_kernel(win)
-    return np.convolve(a, k, mode="same")
+    # np.convolve(mode="same") returns max(len(a), len(k)) samples, so a
+    # kernel wider than the signal (very short routes) yields an output
+    # longer than the input. Extract the input-length centered window from
+    # the full convolution; identical to mode="same" when len(a) >= len(k).
+    full = np.convolve(a, k, mode="full")
+    off = (len(k) - 1) // 2
+    return full[off:off + len(a)]
 
 
 def _lowpass_noise(rng, n, win, target_sigma, cap):
@@ -75,10 +81,12 @@ def simulate(route, cfg: SimConfig) -> list[Frame]:
     smooth_e = _smooth(nom[:, 0], cfg.smooth_win)
     smooth_n = _smooth(nom[:, 1], cfg.smooth_win)
     # keep endpoints anchored (convolution 'same' biases ends)
-    smooth_e[:cfg.smooth_win] = nom[:cfg.smooth_win, 0]
-    smooth_n[:cfg.smooth_win] = nom[:cfg.smooth_win, 1]
-    smooth_e[-cfg.smooth_win:] = nom[-cfg.smooth_win:, 0]
-    smooth_n[-cfg.smooth_win:] = nom[-cfg.smooth_win:, 1]
+    aw = min(cfg.smooth_win, n_frames // 2)
+    if aw > 0:
+        smooth_e[:aw] = nom[:aw, 0]
+        smooth_n[:aw] = nom[:aw, 1]
+        smooth_e[-aw:] = nom[-aw:, 0]
+        smooth_n[-aw:] = nom[-aw:, 1]
 
     # tangent of smoothed centerline -> perpendicular for tracking offset
     dse = np.gradient(smooth_e)

@@ -41,6 +41,15 @@ def test_heading_continuous_through_corner():
     assert max(dyaws) < math.radians(20.0)
 
 
+def test_short_route_runs_without_error():
+    r = g.route_from_waypoints([(0, 0), (5, 0)], [1, 2], ds=0.1)
+    frames = simulate(r, SimConfig(tier="low", seed=9))
+    assert len(frames) >= 2
+    gs = [f.gt_s for f in frames]
+    assert all(gs[i + 1] >= gs[i] - 1e-9 for i in range(len(gs) - 1))
+    assert max(abs(f.true_n) for f in frames) <= 0.4 + 0.05
+
+
 def test_gt_progress_monotonic():
     r = _corner()
     frames = simulate(r, SimConfig(tier="medium", seed=4))
