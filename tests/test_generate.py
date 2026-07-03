@@ -6,7 +6,7 @@ def test_case_dict_schema_and_pass():
     scen = {s.case_id: s for s in build_scenarios()}
     case = build_case_dict(scen["E_low"])
     assert case["case_id"] == "E_low"
-    assert "route" in case and "waypoints" in case["route"]
+    assert "route" in case and "waypoint_indices" in case["route"]
     assert case["route"]["waypoint_labels"] == [1, 2, 3, 4]
     assert len(case["frames"]) > 0
     f0 = case["frames"][0]

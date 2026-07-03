@@ -52,7 +52,6 @@ def build_case_dict(scenario) -> dict:
             "points_e": _round2(route.points[:, 0]),
             "points_n": _round2(route.points[:, 1]),
             "s": _round2(route.s),
-            "waypoints": route.waypoint_indices,
             "waypoint_indices": route.waypoint_indices,
             "waypoint_labels": route.waypoint_labels,
         },
