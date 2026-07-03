@@ -274,6 +274,14 @@ Along with each case: the Route polyline plus waypoint labels, the tier/seed met
 
 ---
 
+## Extensions
+
+- **Real-data ingestion + OSM basemap** (approved, pending implementation):
+  `docs/superpowers/specs/2026-07-03-real-data-osm-design.md`. Adds Simulation /
+  Real-data tabs, runs the same algorithm on `dataset/` packages (ego GCJ-02→
+  WGS-84, `yaw_boot`+boot→ENU offset, planned route as the Route), and shows an
+  OSM basemap in the BEV. This section will be folded into the body when shipped.
+
 ## 7. TBD
 
 - ~~Exact default pinhole camera parameters~~ — *resolved:* the perspective view uses `PERSP` in `viewer.js` (height 1.4 m, pitch 10°, HFOV 70°, principal point centered, ribbon half-width 0.7 m); still off the acceptance path.
