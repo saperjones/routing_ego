@@ -101,16 +101,29 @@ metadata). All keys observed are documented below.
 |-------|------|-------|---------|
 | `available` | bool | — | Whether a geodetic fix is present (all `true` observed). |
 | `type` | int | — | Fix/solution type enum. Observed value `2`. Exact enum meaning **(TBD)**. |
-| `longitude` | float | degrees | WGS84 longitude. |
-| `latitude` | float | degrees | WGS84 latitude. |
+| `longitude` | float | degrees | Longitude — empirically **GCJ-02**, *not* WGS-84 (see §4 / §6). |
+| `latitude` | float | degrees | Latitude — empirically **GCJ-02**. |
 | `height` | float | meters | Ellipsoidal/geoid height **(datum TBD)**. |
+
+> ⚠️ **Datum caveat.** The root `coordinate` metadata string claims "WGS84
+> longitude/latitude", but measurement shows the `llh` (and the flattened
+> top-level `longitude`/`latitude`) are actually in **GCJ-02** (China's
+> encrypted datum). See §4 and §6 for the evidence. Treat the metadata label as
+> incorrect for the geodetic fields.
 
 ---
 
 ## 4. Coordinate frames and conventions
 
-- **Geodetic (global):** WGS84 `longitude` / `latitude` (degrees) and `height`
-  (meters). This is the global position of the vehicle.
+- **Geodetic (global):** `longitude` / `latitude` (degrees) and `height`
+  (meters) — the global position of the vehicle. **The lon/lat are in GCJ-02**,
+  despite the `coordinate` metadata saying "WGS84". Verified empirically: after
+  converting this file's track from GCJ-02→WGS-84 it aligns with
+  `planned_route.json`'s WGS-84 `ego_track` to a **median ≈ 0.7 m** (and to the
+  `planned_route` path to ≈ 1.7 m), and both tracks are the same length
+  (~1150 m). Left raw, the two files sit ~430–570 m apart (the GCJ-02 offset at
+  this location, ~31.83° N, 117.14° E). **Convert to a common datum before
+  comparing/fusing the two files.**
 - **Boot frame (`*_boot`):** a local right-handed metric frame (meters) anchored
   at system **boot** (session start). Holds `position_boot {x,y,z}`,
   `velocity_boot {x,y,z}`, `rotation_boot {w,x,y,z}`, and `yaw_boot`. Observed
@@ -158,6 +171,7 @@ metadata). All keys observed are documented below.
 | Content | Measured ego pose/attitude/velocity per frame | Planned route + waypoints + source ego track |
 | Key arrays | `points[]` (rich objects) | `planned_route[]`, `waypoints[]`, `ego_track[]` (coordinate pairs) |
 | Coordinate layout | explicit `longitude`,`latitude`,`height` + boot-frame `x,y,z` | `[lat, lon]` pairs (latitude first) |
+| **Geodetic datum** | **GCJ-02** (despite metadata saying WGS84) | **WGS-84** |
 | Yaw units | radians (`yaw_boot`) | degrees (`waypoint_yaws`, `start_yaw_deg`) |
 | Extras | velocities, yaw-rate, quaternion, timestamps, interpolation | `params{}`, `ego_length_m`, `planned_length_m` |
 | Role | "where/what attitude the car actually was" | "where the car is supposed to go" |
@@ -170,6 +184,10 @@ The cross-file key is `route_index`: per-frame `data_route.route_index` →
 ## 7. Open items (TBD)
 
 - `llh.type` enum meaning (observed `2`).
+- Why the geodetic datum is **GCJ-02** while the `coordinate` metadata says
+  "WGS84" (producer mislabel vs. an intentional map-datum choice) — *the datum
+  itself is confirmed GCJ-02 by the cross-file alignment above; only the reason
+  for the mislabel is open.*
 - Boot-frame exact origin/datum and axis convention (notably the sign/direction
   of `z`, observed large-negative).
 - `velocity_body` `y`/`z` sign convention (forward is confirmed via `x ≈ v`).
