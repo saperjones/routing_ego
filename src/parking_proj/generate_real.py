@@ -5,7 +5,7 @@ import os
 import numpy as np
 from . import geo, osm
 from .realdata import load_dataset, is_dataset_dir
-from .projection import Projector
+from .projection import Projector, follow_path, FOLLOW_AHEAD, FOLLOW_DS
 
 MARGIN_M = 40.0
 
@@ -37,6 +37,8 @@ def build_real_case_dict(dataset_dir, basemap=None):
     frames = []
     for i in range(len(ds.meas_e)):
         r = proj.step(float(ds.meas_e[i]), float(ds.meas_n[i]), float(ds.meas_yaw[i]))
+        fp, lat_shift = follow_path(route, float(ds.meas_e[i]), float(ds.meas_n[i]),
+                                    float(ds.meas_yaw[i]), r.cursor_s)
         frames.append({
             "t": _r(ds.t_us[i] / 1e6),
             "speed": _r(ds.speed[i]),
@@ -46,6 +48,8 @@ def build_real_case_dict(dataset_dir, basemap=None):
             "cursor_s": _r(r.cursor_s),
             "matched_seg": r.matched_seg,
             "est_lat_dev": _r(r.est_lat_dev, 4),
+            "follow_path": [[_r(x), _r(y)] for x, y in fp],
+            "lat_shift": _r(lat_shift, 4),
             "end_flag": bool(r.end_flag),
         })
     return {
@@ -55,7 +59,8 @@ def build_real_case_dict(dataset_dir, basemap=None):
         "theta_deg": _r(math.degrees(ds.theta_rad), 3),
         "origin": {"lat0": ds.lat0, "lon0": ds.lon0},
         "basemap": basemap,
-        "config": {"ahead": proj.ahead, "behind": proj.behind},
+        "config": {"ahead": proj.ahead, "behind": proj.behind,
+                   "follow_ahead": FOLLOW_AHEAD, "follow_ds": FOLLOW_DS},
         "route": {
             "points_e": _rl(route.points[:, 0]), "points_n": _rl(route.points[:, 1]),
             "s": _rl(route.s), "waypoint_indices": route.waypoint_indices,
