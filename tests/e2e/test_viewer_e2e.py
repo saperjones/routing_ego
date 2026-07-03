@@ -90,6 +90,11 @@ def base_url():
         env = dict(os.environ, PYTHONPATH=str(SRC))
         subprocess.run([sys.executable, "-m", "parking_proj.generate"],
                        cwd=REPO, env=env, check=True)
+    real_index = OUT / "real" / "index.json"
+    if not real_index.exists():
+        env = dict(os.environ, PYTHONPATH=str(SRC))
+        subprocess.run([sys.executable, "-m", "parking_proj.generate_real"],
+                       cwd=REPO, env=env, check=True)
     port = _free_port()
     proc = subprocess.Popen(
         [sys.executable, "-m", "http.server", str(port)],
@@ -129,6 +134,8 @@ def _select(page, case_name):
 
 def test_case_list_populates(viewer):
     page, _ = viewer
+    page.click("#tab-sim")
+    page.wait_for_selector("#case-list li.group-header")
     rows = page.locator("#case-list li:not(.group-header)")
     headers = page.locator("#case-list li.group-header")
     assert rows.count() == 14
@@ -229,3 +236,38 @@ def test_no_js_errors(viewer):
     _select(page, "Figure-eight (medium)")
     page.click("#btn-step-fwd")
     assert errors == [], f"JS errors during viewer use: {errors}"
+
+
+def test_real_tab_is_default_and_lists_datasets(viewer):
+    page, _ = viewer
+    # ensure we are on the real tab (default tab is Real data)
+    page.click("#tab-real")
+    page.wait_for_selector("#case-list li:not(.group-header)")
+    # default tab is Real data
+    assert "active" in (page.get_attribute("#tab-real", "class") or "")
+    rows = page.locator("#case-list li:not(.group-header)")
+    assert rows.count() >= 1                      # at least the sample dataset
+
+
+def test_real_case_renders_bev_and_drives(viewer):
+    page, errors = viewer
+    page.locator("#case-list li:not(.group-header)").first.click()
+    page.wait_for_function(_NONBLANK, arg="#bev", timeout=8000)
+    page.wait_for_function(_NONBLANK, arg="#driver", timeout=8000)
+    bev = page.evaluate(_GEOM, "#bev")
+    assert bev["drawn"] > 1500, bev                # basemap-or-gray + route + track fill area
+    # telemetry shows real-data verdict placeholder, speed present
+    assert "real" in page.inner_text("#tm-verdict").lower() or "—" in page.inner_text("#tm-verdict")
+    assert "km/h" in page.inner_text("#tm-speed")
+    # step advances the frame
+    before = page.inner_text("#tm-frame")
+    page.click("#btn-step-fwd")
+    assert page.inner_text("#tm-frame") != before
+
+
+def test_tab_switch_to_simulation_works(viewer):
+    page, _ = viewer
+    page.click("#tab-sim")
+    page.wait_for_selector("#case-list li.group-header")   # sim list has group headers
+    assert page.locator("#case-list .badge.pass").count() >= 1
+    page.click("#tab-real")                                 # back to real
