@@ -32,12 +32,21 @@ async function loadIndex() {
 }
 
 async function loadCase(caseId) {
-  const res = await fetch(`../out/${caseId}.json`);
-  STATE.case = await res.json();
+  const dir = STATE.mode === "real" ? "../out/real/" : "../out/";
+  STATE.case = await (await fetch(`${dir}${caseId}.json`)).json();
   STATE.frame = 0;
+  STATE.basemapImgs = null;
+  if (STATE.case.mode === "real" && STATE.case.basemap) {
+    STATE.basemapImgs = {};
+    await Promise.all(STATE.case.basemap.tiles.map(t => new Promise(res => {
+      const img = new Image();
+      img.onload = () => { STATE.basemapImgs[t.file] = img; res(); };
+      img.onerror = () => res();
+      img.src = `../out/real/${t.file}`;
+    })));
+  }
   const sc = document.getElementById("scrubber");
-  sc.max = STATE.case.frames.length - 1;
-  sc.value = 0;
+  sc.max = STATE.case.frames.length - 1; sc.value = 0;
 }
 
 function routeXY(c) {
@@ -108,6 +117,7 @@ async function selectCase(caseId, li) {
   STATE.playing = false;
   await loadCase(caseId);
   BEV_STATIC = null;
+  BEVREAL_STATIC = null;
   drawPanorama();
   renderFrame();   // defined in Task 10
 }
@@ -128,6 +138,108 @@ window.addEventListener("DOMContentLoaded", () => {
 
 // ---- offscreen static layers (anti-flicker) ----
 let BEV_STATIC = null, BEV_T = null;
+let BEVREAL_STATIC = null, BEVREAL_T = null;
+
+function mercatorGlobalPx(lon, lat, z) {         // matches osm.lonlat_to_global_px
+  const n = 2 ** z, T = 256;
+  const x = (lon + 180) / 360 * n * T;
+  const y = (1 - Math.asinh(Math.tan(lat * Math.PI / 180)) / Math.PI) / 2 * n * T;
+  return { x, y };
+}
+
+// Build the fixed lon/lat -> canvas transform for a real case, fitting the
+// route+track bounds (and basemap if present) into the BEV canvas.
+function buildRealTransform(c, cv) {
+  const z = c.basemap ? c.basemap.z : 18;
+  const pts = c.route_llh.concat(c.ego_track_llh);
+  let minx = 1e18, miny = 1e18, maxx = -1e18, maxy = -1e18;
+  const bounds = c.basemap
+    ? [[c.basemap.y0 * 256, c.basemap.x0 * 256],
+       [(c.basemap.y0 + c.basemap.ny) * 256, (c.basemap.x0 + c.basemap.nx) * 256]]
+    : null;
+  if (bounds) { miny = bounds[0][0]; minx = bounds[0][1]; maxy = bounds[1][0]; maxx = bounds[1][1]; }
+  else for (const [la, lo] of pts) {
+    const p = mercatorGlobalPx(lo, la, z);
+    minx = Math.min(minx, p.x); maxx = Math.max(maxx, p.x);
+    miny = Math.min(miny, p.y); maxy = Math.max(maxy, p.y);
+  }
+  const pad = 8;
+  const s = Math.min((cv.width - 2 * pad) / (maxx - minx), (cv.height - 2 * pad) / (maxy - miny));
+  const ox = pad + (cv.width - 2 * pad - (maxx - minx) * s) / 2;
+  const oy = pad + (cv.height - 2 * pad - (maxy - miny) * s) / 2;
+  return { z, toX: gx => ox + (gx - minx) * s, toY: gy => oy + (gy - miny) * s };
+}
+
+function llToCanvas(T, lon, lat) {
+  const p = mercatorGlobalPx(lon, lat, T.z);
+  return { x: T.toX(p.x), y: T.toY(p.y) };
+}
+
+function drawTrackReal(ctx, T, llh, color, width) {
+  ctx.strokeStyle = color; ctx.lineWidth = width; ctx.beginPath();
+  for (let i = 0; i < llh.length; i++) {
+    const p = llToCanvas(T, llh[i][1], llh[i][0]);
+    if (i === 0) ctx.moveTo(p.x, p.y); else ctx.lineTo(p.x, p.y);
+  }
+  ctx.stroke();
+}
+
+function drawArrowsReal(ctx, T, llh, idxs, color) {
+  ctx.strokeStyle = color; ctx.fillStyle = color; ctx.lineWidth = 2;
+  for (const i of idxs) {
+    if (i + 1 >= llh.length) continue;
+    const a = llToCanvas(T, llh[i][1], llh[i][0]);
+    const b = llToCanvas(T, llh[i + 1][1], llh[i + 1][0]);
+    const ang = Math.atan2(b.y - a.y, b.x - a.x);
+    const L = 7;
+    ctx.beginPath();
+    ctx.moveTo(b.x, b.y);
+    ctx.lineTo(b.x - L * Math.cos(ang - 0.4), b.y - L * Math.sin(ang - 0.4));
+    ctx.moveTo(b.x, b.y);
+    ctx.lineTo(b.x - L * Math.cos(ang + 0.4), b.y - L * Math.sin(ang + 0.4));
+    ctx.stroke();
+  }
+}
+
+function buildBevRealStatic(cv) {
+  const c = STATE.case;
+  BEVREAL_T = buildRealTransform(c, cv);
+  BEVREAL_STATIC = document.createElement("canvas");
+  BEVREAL_STATIC.width = cv.width; BEVREAL_STATIC.height = cv.height;
+  const ctx = BEVREAL_STATIC.getContext("2d");
+  const T = BEVREAL_T;
+  if (c.basemap && STATE.basemapImgs) {
+    for (const t of c.basemap.tiles) {
+      const img = STATE.basemapImgs[t.file];
+      if (!img) continue;
+      const gx = t.x * 256, gy = t.y * 256;   // tile's top-left global px
+      const x0 = T.toX(gx), y0 = T.toY(gy);
+      const x1 = T.toX(gx + 256), y1 = T.toY(gy + 256);
+      ctx.drawImage(img, x0, y0, x1 - x0, y1 - y0);
+    }
+  } else {
+    ctx.fillStyle = "#eef0f2"; ctx.fillRect(0, 0, cv.width, cv.height);
+    ctx.strokeStyle = "#dfe3e8"; ctx.lineWidth = 1;
+    for (let x = 0; x < cv.width; x += 40) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, cv.height); ctx.stroke(); }
+    for (let y = 0; y < cv.height; y += 40) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(cv.width, y); ctx.stroke(); }
+  }
+  drawTrackReal(ctx, T, c.route_llh, "#4477cc", 3);       // planned route
+  drawTrackReal(ctx, T, c.ego_track_llh, "#222", 2);      // ego driven track
+  drawArrowsReal(ctx, T, c.route_llh, c.route_arrow_idx, "#2b5fb0");
+  drawArrowsReal(ctx, T, c.ego_track_llh, c.ego_arrow_idx, "#cc3a3a");
+}
+
+function drawBevReal() {
+  const c = STATE.case, cv = document.getElementById("bev");
+  const ctx = cv.getContext("2d");
+  if (!BEVREAL_STATIC) buildBevRealStatic(cv);
+  ctx.clearRect(0, 0, cv.width, cv.height);
+  ctx.drawImage(BEVREAL_STATIC, 0, 0);
+  const f = c.frames[STATE.frame];
+  const p = llToCanvas(BEVREAL_T, f.meas_ll.lon, f.meas_ll.lat);
+  ctx.fillStyle = "#cc3a3a";
+  ctx.beginPath(); ctx.arc(p.x, p.y, 5, 0, 2 * Math.PI); ctx.fill();   // car marker
+}
 
 function buildBevStatic() {
   const c = STATE.case, cv = document.getElementById("bev");
@@ -319,7 +431,8 @@ function drawWindshield(ctx, f) {
 
 function renderFrame() {
   const c = STATE.case; if (!c) return;
-  drawBev(); drawDriver(); updateTelemetry(); drawPanoramaDot();
+  if (STATE.case.mode === "real") drawBevReal(); else drawBev();
+  drawDriver(); updateTelemetry(); drawPanoramaDot();
   document.getElementById("scrubber").value = STATE.frame;
   document.getElementById("frame-label").textContent =
     `${STATE.frame} / ${c.frames.length - 1}`;
