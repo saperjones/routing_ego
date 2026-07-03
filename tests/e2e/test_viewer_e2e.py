@@ -62,6 +62,19 @@ _GEOM = """(sel) => {
   return {w: c.width, h: c.height, drawn: n, bbox: [minx, miny, maxx, maxy]};
 }"""
 
+# JS: mean x of the route stroke (green #2e9e5b) within a canvas y-band [y0, y1)
+_ROUTE_MEAN_X = """([sel, y0, y1]) => {
+  const c = document.querySelector(sel);
+  const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+  let sx = 0, n = 0;
+  for (let y = y0; y < y1; y++) for (let x = 0; x < c.width; x++) {
+    const i = (y * c.width + x) * 4;
+    const r = d[i], g = d[i + 1], b = d[i + 2], a = d[i + 3];
+    if (a > 0 && g > 90 && g - r > 25 && g - b > 25) { sx += x; n++; }  // greenish route
+  }
+  return {mean: n ? sx / n : null, n: n};
+}"""
+
 
 def _free_port():
     s = socket.socket()
@@ -283,6 +296,59 @@ def test_recenter_toggle_default_and_changes_view(viewer):
     assert sig_on != sig_off, "recenter toggle did not change the driver view"
     page.check("#recenter-toggle")
     page.click("#tab-real")
+
+
+def test_recenter_centers_route_ahead(viewer):
+    """Web-effect test: with 'remove lateral offset' ON, the planned route
+    renders directly ahead of the car (near canvas centre) in the top-down
+    driver view; OFF, it is displaced sideways by the lateral offset. The two
+    renders differ horizontally by exactly lat_shift * pixels-per-metre, which
+    is the concrete pixel proof that the offset was nulled."""
+    page, _ = viewer
+    page.click("#tab-sim")
+    # a straight route with high RTK error: large lateral offset, no crossings
+    # or corners (where the 70 m follow_path could fold back into a forward band)
+    _select(page, "Straight (high)")
+    # top-down mode, toggle on (module-scoped fixture: don't trust prior state)
+    if page.is_checked("#persp-toggle"):
+        page.uncheck("#persp-toggle")
+    if not page.is_checked("#recenter-toggle"):
+        page.check("#recenter-toggle")
+    # seek to the frame with the largest lateral offset so the effect is clear
+    frame = page.evaluate(
+        "() => { const f = STATE.case.frames; let bi = 0, bv = 0;"
+        " for (let i = 0; i < f.length; i++) { const v = Math.abs(f[i].lat_shift || 0);"
+        " if (v > bv) { bv = v; bi = i; } } return bi; }"
+    )
+    page.eval_on_selector(
+        "#scrubber",
+        f"el => {{ el.value = {frame}; el.dispatchEvent(new Event('input')); }}",
+    )
+    page.wait_for_timeout(50)
+    lat_shift = page.evaluate(f"() => STATE.case.frames[{frame}].lat_shift")
+    assert abs(lat_shift) > 0.3, f"need a meaningful offset to test, got {lat_shift}"
+
+    ppm = (300 - 20) / (20 - (-5))          # driver-view pixels per metre (h, ahead, behind)
+    center = 560 / 2                        # canvas width / 2
+    band = ["#driver", 144, 201]           # ~3-8 m ahead: clear of the car marker, route visible
+
+    on = page.evaluate(_ROUTE_MEAN_X, band)
+    page.uncheck("#recenter-toggle")
+    page.wait_for_timeout(50)
+    off = page.evaluate(_ROUTE_MEAN_X, band)
+    page.check("#recenter-toggle")
+    page.click("#tab-real")
+
+    assert on["n"] > 5 and off["n"] > 5, (on, off)     # route actually present in the band
+    # ON renders the route directly ahead of the car (near the centreline)...
+    assert abs(on["mean"] - center) < 10, {"on": on["mean"], "center": center}
+    # ...and much nearer centre than OFF, which is displaced by the offset
+    assert abs(on["mean"] - center) < abs(off["mean"] - center), \
+        {"on": on["mean"], "off": off["mean"], "center": center}
+    # x_on - x_off == lat_shift * ppm  (a pure horizontal shift by the offset)
+    expected = lat_shift * ppm
+    assert abs((on["mean"] - off["mean"]) - expected) < 12, \
+        {"on": on["mean"], "off": off["mean"], "expected": expected, "lat_shift": lat_shift}
 
 
 def test_tab_switch_to_simulation_works(viewer):
