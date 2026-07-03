@@ -34,6 +34,12 @@ gen() {
     PYTHONPATH=src "$PY" -m parking_proj.generate
 }
 
+gen_real() {
+    ensure_venv
+    echo ">> generating real-data cases -> out/real/ ..."
+    PYTHONPATH=src "$PY" -m parking_proj.generate_real
+}
+
 serve() {
     gen
     echo ">> serving at ${URL}"
@@ -50,6 +56,7 @@ serve() {
 case "${1:-serve}" in
     setup)         ensure_venv; echo ">> venv ready." ;;
     gen|generate)  gen ;;
+    gen-real)      gen_real ;;
     serve|"")      serve ;;
     test)          ensure_venv; "$PY" -m pytest -v ;;
     e2e)
@@ -59,11 +66,11 @@ case "${1:-serve}" in
         "$PY" -m pytest -m e2e -v
         ;;
     -h|--help|help)
-        echo "usage: ./run.sh [serve|gen|test|e2e|setup]   (PORT=8000 by default)"
+        echo "usage: ./run.sh [serve|gen|gen-real|test|e2e|setup]   (PORT=8000 by default)"
         ;;
     *)
         echo "unknown command: $1" >&2
-        echo "usage: ./run.sh [serve|gen|test|e2e|setup]" >&2
+        echo "usage: ./run.sh [serve|gen|gen-real|test|e2e|setup]" >&2
         exit 1
         ;;
 esac
