@@ -208,6 +208,21 @@ def test_bev_rebuilds_on_case_switch(viewer):
     assert sig_straight != sig_cross, "BEV did not change between cases (stale static layer)"
 
 
+def test_perspective_view_renders(viewer):
+    """The 'perspective' toggle switches the driver-view into the windshield
+    3D projection: sky/ground fill make it far denser than the top-down slice,
+    and it spans essentially the full width."""
+    page, _ = viewer
+    _select(page, "X-crossing (low)")
+    top = page.evaluate(_GEOM, "#driver")
+    page.check("#persp-toggle")
+    page.wait_for_timeout(200)
+    persp = page.evaluate(_GEOM, "#driver")
+    assert persp["drawn"] > top["drawn"] * 3, (top, persp)          # filled sky+ground
+    assert (persp["bbox"][2] - persp["bbox"][0]) > persp["w"] * 0.8, persp
+    page.uncheck("#persp-toggle")
+
+
 def test_no_js_errors(viewer):
     page, errors = viewer
     # exercise a couple more interactions before the final error check

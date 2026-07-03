@@ -171,6 +171,7 @@ function drawDriver() {
   ctx.clearRect(0, 0, cv.width, cv.height);
   const f = c.frames[STATE.frame];
   if (f.cursor_s == null) return;
+  if (document.getElementById("persp-toggle").checked) { drawWindshield(ctx, f); return; }
   const ahead = c.config.ahead, behind = c.config.behind;
   // body-frame fixed transform: x forward -> up, y left -> left
   const w = cv.width, h = cv.height, ppm = (h - 20) / (ahead - behind);
@@ -195,26 +196,90 @@ function drawDriver() {
     ctx.fillStyle = "#cc3a3a"; ctx.font = "12px sans-serif";
     ctx.fillText("route ends", 8, 16);
   }
-  if (document.getElementById("persp-toggle").checked) drawPerspective(ctx, f);
 }
 
-function drawPerspective(ctx, f) {
-  // nice-to-have default pinhole overlay: cam height 1.4m, pitch -2deg, hfov 60
-  const cv = ctx.canvas, cx = cv.width * 0.75, cyv = cv.height * 0.35;
-  const fpx = (cv.width * 0.25) / Math.tan((60 * Math.PI / 180) / 2);
-  const H = 1.4, pitch = -2 * Math.PI / 180;
-  ctx.strokeStyle = "#a0522d"; ctx.lineWidth = 2; ctx.beginPath();
-  const s = STATE.case.route.s, e = STATE.case.route.points_e, n = STATE.case.route.points_n;
-  let started = false;
-  for (let i = 0; i < s.length; i++) {
-    if (s[i] < f.cursor_s || s[i] > f.cursor_s + STATE.case.config.ahead) continue;
-    const b = worldToBody(f.meas_pose.e, f.meas_pose.n, e[i], n[i], f.meas_pose.h);
-    if (b.x <= 0.5) continue;
-    const px = cx - (b.y / b.x) * fpx * 0.25;
-    const py = cyv + (H / b.x + pitch) * fpx * 0.25;
-    if (!started) { ctx.moveTo(px, py); started = true; } else ctx.lineTo(px, py);
+// PERSP: pinhole camera constants (driver's eye). Exposed for tweaking.
+const PERSP = { H: 1.4, pitch_deg: 3, hfov_deg: 60, half_width: 0.7 };
+
+// Windshield ("stereoscopic") view: project the route onto the road plane
+// ahead through a forward-looking pinhole camera, with a horizon, a ground
+// grid for depth, and the trajectory as a ribbon that narrows into the
+// distance and converges toward the vanishing point.
+function drawWindshield(ctx, f) {
+  const cv = ctx.canvas, w = cv.width, h = cv.height;
+  const H = PERSP.H;
+  const pitch = PERSP.pitch_deg * Math.PI / 180;         // downward camera pitch
+  const fpx = (w / 2) / Math.tan((PERSP.hfov_deg * Math.PI / 180) / 2);
+  const cx = w / 2, cy = h / 2;
+  const cosT = Math.cos(pitch), sinT = Math.sin(pitch);
+  const horizon = cy - fpx * Math.tan(pitch);            // image row X -> infinity
+
+  // Ground point (X forward, Y left, on the road H below the camera) -> pixel.
+  function project(X, Y) {
+    const depth = X * cosT + H * sinT;                   // along optical axis
+    if (depth <= 0.05) return null;
+    const right = -Y;                                    // camera image-right = -left
+    const down = H * cosT - X * sinT;                    // camera image-down
+    return { u: cx + fpx * right / depth, v: cy + fpx * down / depth };
   }
-  ctx.stroke();
+
+  // sky, ground, horizon
+  const hy = Math.max(0, Math.min(h, horizon));
+  ctx.fillStyle = "#dbe9f6"; ctx.fillRect(0, 0, w, hy);
+  ctx.fillStyle = "#e9ebee"; ctx.fillRect(0, hy, w, h - hy);
+  ctx.strokeStyle = "#9fb0c3"; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(0, hy); ctx.lineTo(w, hy); ctx.stroke();
+
+  // ground grid for depth cue
+  const XMAX = STATE.case.config.ahead;
+  ctx.strokeStyle = "#cbd1d9"; ctx.lineWidth = 1;
+  for (const Y of [-4, -2, 0, 2, 4]) {                   // longitudinal lines
+    let started = false; ctx.beginPath();
+    for (let X = 0.5; X <= XMAX; X += 0.5) {
+      const p = project(X, Y); if (!p) continue;
+      if (!started) { ctx.moveTo(p.u, p.v); started = true; } else ctx.lineTo(p.u, p.v);
+    }
+    ctx.stroke();
+  }
+  for (const X of [5, 10, 15, 20, 25, 30]) {             // lateral distance lines
+    if (X > XMAX) break;
+    const a = project(X, -5), b = project(X, 5);
+    if (a && b) { ctx.beginPath(); ctx.moveTo(a.u, a.v); ctx.lineTo(b.u, b.v); ctx.stroke(); }
+  }
+
+  // route ribbon: edges offset +/- half_width in the body frame
+  const HW = PERSP.half_width;
+  const s = STATE.case.route.s, e = STATE.case.route.points_e, n = STATE.case.route.points_n;
+  const loS = f.cursor_s, hiS = f.cursor_s + XMAX;
+  const left = [], right = [], mid = [];
+  for (let i = 0; i < s.length; i++) {
+    if (s[i] < loS || s[i] > hiS) continue;
+    const b = worldToBody(f.meas_pose.e, f.meas_pose.n, e[i], n[i], f.meas_pose.h);
+    if (b.x <= 0.05) continue;
+    const pl = project(b.x, b.y + HW), pr = project(b.x, b.y - HW), pm = project(b.x, b.y);
+    if (pl) left.push(pl);
+    if (pr) right.push(pr);
+    if (pm) mid.push(pm);
+  }
+  if (left.length > 1 && right.length > 1) {
+    ctx.beginPath();
+    ctx.moveTo(left[0].u, left[0].v);
+    for (const p of left) ctx.lineTo(p.u, p.v);
+    for (let i = right.length - 1; i >= 0; i--) ctx.lineTo(right[i].u, right[i].v);
+    ctx.closePath();
+    ctx.fillStyle = "rgba(46,158,91,0.45)"; ctx.fill();
+    ctx.strokeStyle = "#2e9e5b"; ctx.lineWidth = 2; ctx.stroke();
+  }
+  if (mid.length > 1) {
+    ctx.strokeStyle = "#1c6b3f"; ctx.lineWidth = 2; ctx.setLineDash([7, 7]);
+    ctx.beginPath(); ctx.moveTo(mid[0].u, mid[0].v);
+    for (const p of mid) ctx.lineTo(p.u, p.v);
+    ctx.stroke(); ctx.setLineDash([]);
+  }
+
+  ctx.fillStyle = "#556"; ctx.font = "11px sans-serif";
+  ctx.fillText("driver view (perspective)", 8, 16);
+  if (f.end_flag) { ctx.fillStyle = "#cc3a3a"; ctx.fillText("route ends", 8, 30); }
 }
 
 function renderFrame() {

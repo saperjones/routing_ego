@@ -46,8 +46,11 @@ PORT=9000 ./run.sh  # override the port (default 8000)
 - **Center top — BEV (top-down):** the planned route plus the car's actual
   driven trajectory and an oriented car marker.
 - **Center bottom — Driver view (`+x` up, `+y` left):** the projected route
-  slice in the body frame, car at the origin; optional pinhole-perspective
-  overlay via the checkbox.
+  slice in the body frame, car at the origin. Tick the **perspective** checkbox
+  to switch it into a windshield 3D view — a pinhole projection of the route
+  onto the road plane ahead (horizon, ground grid, and the route as a ribbon
+  that narrows toward the vanishing point). Camera constants live in `PERSP` in
+  `viewer.js`.
 - **Bottom — playback:** step ◀ ▶, play/pause, scrubber, speed (0.5×/1×/2×).
 - **Right — telemetry:** heading, speed, position, estimated & true lateral
   deviation, progress, matched segment, frame index, and the case verdict.
