@@ -1,0 +1,18 @@
+* { box-sizing: border-box; }
+body { margin: 0; font: 13px/1.4 system-ui, sans-serif; color: #222; }
+#app { display: grid; grid-template-columns: 340px 1fr 240px; height: 100vh; }
+#left, #right { padding: 10px; overflow-y: auto; background: #f6f7f9; }
+#center { padding: 10px; display: flex; flex-direction: column; gap: 8px; }
+canvas { background: #fff; border: 1px solid #ccd; display: block; }
+.fig h3 { margin: 4px 0; font-size: 13px; font-weight: 600; }
+#case-list { list-style: none; padding: 0; margin: 0 0 12px; }
+#case-list li { padding: 5px 8px; cursor: pointer; border-radius: 4px; }
+#case-list li:hover { background: #e6ebf2; }
+#case-list li.active { background: #d3e0f5; font-weight: 600; }
+.badge { float: right; font-size: 11px; padding: 0 6px; border-radius: 8px; color: #fff; }
+.badge.pass { background: #2e9e5b; } .badge.fail { background: #cc3a3a; }
+#controls { display: flex; align-items: center; gap: 8px; }
+#scrubber { flex: 1; }
+#telemetry { width: 100%; border-collapse: collapse; }
+#telemetry td { padding: 3px 4px; border-bottom: 1px solid #e2e5ea; }
+#telemetry td:last-child { text-align: right; font-variant-numeric: tabular-nums; }

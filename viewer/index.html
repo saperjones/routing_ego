@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Parking Route Viewer</title>
+  <link rel="stylesheet" href="viewer.css">
+</head>
+<body>
+<div id="app">
+  <aside id="left">
+    <h2>Test cases</h2>
+    <ul id="case-list"></ul>
+    <h2>Route panorama</h2>
+    <canvas id="panorama" width="320" height="240"></canvas>
+  </aside>
+  <main id="center">
+    <div class="fig"><h3>BEV (top-down)</h3><canvas id="bev" width="560" height="300"></canvas></div>
+    <div class="fig"><h3>Driver view (+x up, +y left)
+      <label><input type="checkbox" id="persp-toggle"> perspective</label></h3>
+      <canvas id="driver" width="560" height="300"></canvas></div>
+    <div id="controls">
+      <button id="btn-step-back">◀</button>
+      <button id="btn-play">▶ / ❚❚</button>
+      <button id="btn-step-fwd">▶</button>
+      <input type="range" id="scrubber" min="0" max="0" value="0" step="1">
+      <select id="speed"><option value="0.5">0.5×</option>
+        <option value="1" selected>1×</option><option value="2">2×</option></select>
+      <span id="frame-label">0 / 0</span>
+    </div>
+  </main>
+  <aside id="right">
+    <h2>Telemetry</h2>
+    <table id="telemetry">
+      <tr><td>heading</td><td id="tm-heading">–</td></tr>
+      <tr><td>speed</td><td id="tm-speed">–</td></tr>
+      <tr><td>pos (e,n)</td><td id="tm-pos">–</td></tr>
+      <tr><td>est lat dev</td><td id="tm-estdev">–</td></tr>
+      <tr><td>true lat dev</td><td id="tm-truedev">–</td></tr>
+      <tr><td>progress</td><td id="tm-progress">–</td></tr>
+      <tr><td>matched seg</td><td id="tm-seg">–</td></tr>
+      <tr><td>frame</td><td id="tm-frame">–</td></tr>
+      <tr><td>verdict</td><td id="tm-verdict">–</td></tr>
+    </table>
+  </aside>
+</div>
+<script src="viewer.js"></script>
+</body>
+</html>
