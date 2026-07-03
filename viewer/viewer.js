@@ -238,8 +238,23 @@ function drawBevReal() {
   ctx.drawImage(BEVREAL_STATIC, 0, 0);
   const f = c.frames[STATE.frame];
   const p = llToCanvas(BEVREAL_T, f.meas_ll.lon, f.meas_ll.lat);
-  ctx.fillStyle = "#cc3a3a";
-  ctx.beginPath(); ctx.arc(p.x, p.y, 5, 0, 2 * Math.PI); ctx.fill();   // car marker
+  // yellow oriented arrow (distinct from blue route / red arrows); points along
+  // heading. ENU yaw -> screen angle is -h (mercator is north-up, screen y down).
+  drawCarMarker(ctx, p.x, p.y, -f.meas_pose.h);
+}
+
+function drawCarMarker(ctx, x, y, ang) {
+  const L = 9, W = 6;                       // pixels: nose length / half-width
+  const pts = [[L, 0], [-L * 0.7, W], [-L * 0.7, -W]];   // arrow: nose + two tails
+  ctx.beginPath();
+  pts.forEach(([fx, fy], i) => {
+    const px = x + fx * Math.cos(ang) - fy * Math.sin(ang);
+    const py = y + fx * Math.sin(ang) + fy * Math.cos(ang);
+    if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+  });
+  ctx.closePath();
+  ctx.fillStyle = "#ffd21e"; ctx.fill();                 // yellow
+  ctx.strokeStyle = "#7a5c00"; ctx.lineWidth = 1.5; ctx.stroke();
 }
 
 function buildBevStatic() {
