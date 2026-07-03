@@ -277,6 +277,26 @@ function worldToBody(pe, pn, ex, ny, yaw) {
   return { x: de * cs + dn * sn, y: -de * sn + dn * cs };  // x fwd, y left
 }
 
+// Body-frame route points to draw this frame. When "remove lateral offset" is
+// on and the algorithm emitted a follow_path, replay it directly (already
+// body-frame, offset removed); otherwise derive the raw slice from the route
+// and the measured pose. `behind`/`ahead` are body-forward metres.
+function bodyRoutePoints(c, f, behind, ahead) {
+  const recenter = document.getElementById("recenter-toggle");
+  if (recenter && recenter.checked && f.follow_path) {
+    return f.follow_path
+      .map(([x, y]) => ({ x, y }))
+      .filter((p) => p.x >= behind && p.x <= ahead);
+  }
+  const s = c.route.s, e = c.route.points_e, n = c.route.points_n, out = [];
+  const loS = f.cursor_s + behind, hiS = f.cursor_s + ahead;
+  for (let i = 0; i < s.length; i++) {
+    if (s[i] < loS || s[i] > hiS) continue;
+    out.push(worldToBody(f.meas_pose.e, f.meas_pose.n, e[i], n[i], f.meas_pose.h));
+  }
+  return out;
+}
+
 function drawBev() {
   const c = STATE.case, cv = document.getElementById("bev");
   const ctx = cv.getContext("2d");
@@ -321,17 +341,13 @@ function drawDriver() {
   const w = cv.width, h = cv.height, ppm = (h - 20) / (ahead - behind);
   const toX = (by) => w / 2 - by * ppm;   // +y left -> screen left
   const toY = (bx) => h - 10 - (bx - behind) * ppm; // +x forward -> up
-  // slice of route in [cursor_s+behind, cursor_s+ahead]
-  const s = c.route.s, e = c.route.points_e, n = c.route.points_n;
-  const loS = f.cursor_s + behind, hiS = f.cursor_s + ahead;
+  // route slice in the body frame (offset-removed follow_path, or raw)
+  const pts = bodyRoutePoints(c, f, behind, ahead);
   ctx.strokeStyle = "#2e9e5b"; ctx.lineWidth = 3; ctx.beginPath();
-  let started = false;
-  for (let i = 0; i < s.length; i++) {
-    if (s[i] < loS || s[i] > hiS) continue;
-    const b = worldToBody(f.meas_pose.e, f.meas_pose.n, e[i], n[i], f.meas_pose.h);
+  pts.forEach((b, i) => {
     const x = toX(b.y), y = toY(b.x);
-    if (!started) { ctx.moveTo(x, y); started = true; } else ctx.lineTo(x, y);
-  }
+    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  });
   ctx.stroke();
   // car at origin (width=1.8m, height=3.6m, centered)
   ctx.fillStyle = "#cc3a3a";
@@ -399,12 +415,9 @@ function drawWindshield(ctx, f) {
 
   // route ribbon: edges offset +/- half_width in the body frame
   const HW = PERSP.half_width;
-  const s = STATE.case.route.s, e = STATE.case.route.points_e, n = STATE.case.route.points_n;
-  const loS = f.cursor_s, hiS = f.cursor_s + XMAX;
+  const pts = bodyRoutePoints(STATE.case, f, 0, XMAX);
   const left = [], right = [], mid = [];
-  for (let i = 0; i < s.length; i++) {
-    if (s[i] < loS || s[i] > hiS) continue;
-    const b = worldToBody(f.meas_pose.e, f.meas_pose.n, e[i], n[i], f.meas_pose.h);
+  for (const b of pts) {
     if (b.x <= 0.05) continue;
     const pl = project(b.x, b.y + HW), pr = project(b.x, b.y - HW), pm = project(b.x, b.y);
     if (pl) left.push(pl);
@@ -510,4 +523,5 @@ window.addEventListener("DOMContentLoaded", () => {
   };
   document.getElementById("speed").onchange = (ev) => { STATE.speed = parseFloat(ev.target.value); };
   document.getElementById("persp-toggle").onchange = () => renderFrame();
+  document.getElementById("recenter-toggle").onchange = () => renderFrame();
 });

@@ -266,6 +266,25 @@ def test_real_case_renders_bev_and_drives(viewer):
     assert page.inner_text("#tm-frame") != before
 
 
+def test_recenter_toggle_default_and_changes_view(viewer):
+    page, _ = viewer
+    page.click("#tab-sim")
+    _select(page, "X-crossing (high)")
+    # move into the run so a lateral offset is present
+    page.eval_on_selector(
+        "#scrubber",
+        "el => { el.value = Math.floor(el.max/2); el.dispatchEvent(new Event('input')); }",
+    )
+    assert page.is_checked("#recenter-toggle")            # default ON
+    sig_on = page.evaluate(_SIGNATURE, "#driver")
+    page.uncheck("#recenter-toggle")
+    page.wait_for_timeout(100)
+    sig_off = page.evaluate(_SIGNATURE, "#driver")
+    assert sig_on != sig_off, "recenter toggle did not change the driver view"
+    page.check("#recenter-toggle")
+    page.click("#tab-real")
+
+
 def test_tab_switch_to_simulation_works(viewer):
     page, _ = viewer
     page.click("#tab-sim")
