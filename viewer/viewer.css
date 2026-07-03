@@ -9,6 +9,8 @@ canvas { background: #fff; border: 1px solid #ccd; display: block; }
 #case-list li { padding: 5px 8px; cursor: pointer; border-radius: 4px; }
 #case-list li:hover { background: #e6ebf2; }
 #case-list li.active { background: #d3e0f5; font-weight: 600; }
+#case-list li.group-header { cursor: default; background: none; font-weight: 700; text-transform: uppercase; font-size: 11px; color: #667; padding: 8px 4px 2px; letter-spacing: .04em; }
+#case-list li.group-header:hover { background: none; }
 .badge { float: right; font-size: 11px; padding: 0 6px; border-radius: 8px; color: #fff; }
 .badge.pass { background: #2e9e5b; } .badge.fail { background: #cc3a3a; }
 #controls { display: flex; align-items: center; gap: 8px; }

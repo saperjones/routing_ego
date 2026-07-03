@@ -1,11 +1,24 @@
 const STATE = { case: null, frame: 0, playing: false, speed: 1 };
 
+const GROUP_NAMES = {
+  A: "Straight", B: "Smooth turn", C: "Near-90 corner", D: "S-shape",
+  E: "X-crossing", F: "Figure-eight", G: "Two-crossing",
+};
+
 async function loadIndex() {
   const res = await fetch("../out/index.json");
   const data = await res.json();
   const ul = document.getElementById("case-list");
   ul.innerHTML = "";
+  let lastGroup = null;
   for (const c of data.cases) {
+    if (c.group !== lastGroup) {
+      const h = document.createElement("li");
+      h.className = "group-header";
+      h.textContent = GROUP_NAMES[c.group] || c.group;
+      ul.appendChild(h);
+      lastGroup = c.group;
+    }
     const li = document.createElement("li");
     const pass = c.verdict.passed;
     li.innerHTML = `${c.name}<span class="badge ${pass ? "pass" : "fail"}">${pass ? "PASS" : "FAIL"}</span>`;
