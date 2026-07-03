@@ -111,7 +111,7 @@ also uses. Sanity values: at `h = 0`, East→forward and North→left; at
 
 State carried between frames: the scalar **progress cursor** `σ_c` (`cursor_s`),
 an arc-length position. Parameters (defaults): look-ahead `A = +20 m`,
-look-behind `B = −5 m`, forward search `W = 3.5 m`, back tolerance
+look-behind `B = −5 m`, forward search `W = 15 m`, back tolerance
 `ε_b = 0.3 m`, heading gate `γ = 60°`.
 
 ### 5.1 Angular gate
@@ -189,8 +189,11 @@ arc-lengths `σ₁ < σ₂` (`|σ₂ − σ₁|` is large — tens of meters in 
 e.g. ≈ 91 m for the X-crossing). Suppose at some frame the true progress is near
 `σ₁`, so `σ_c ≈ σ₁`.
 
-The search window covers arc-lengths `[σ_c − ε_b, σ_c + W]` with `W = 3.5 m`.
-Because `σ₂ − σ₁ ≫ W`, the *second* occurrence of `X` (arc-length `σ₂`) is
+The search window covers arc-lengths `[σ_c − ε_b, σ_c + W]` with `W = 15 m`
+(the **endurable offset** — the largest along-track jump the projection can
+absorb before the anchor falls behind the vehicle; configurable, default 15 m).
+Because `σ₂ − σ₁ ≫ W` (tens of metres — 64–104 m across the scenarios), the
+*second* occurrence of `X` (arc-length `σ₂`) is
 **outside the window**, so it cannot be selected — even though it is the same
 world point and thus at zero Euclidean distance. On the later pass, `σ_c` has
 advanced past the intervening waypoints to near `σ₂`, and now the first

@@ -73,7 +73,10 @@ A stateful projector carries a **progress cursor** `cursor_s` (arc-length along
 the route). Each frame it:
 
 1. matches the measured pose only within a bounded **forward window**
-   `[cursor_s − 0.3 m, cursor_s + 3.5 m]`, gated by **heading agreement**
+   `[cursor_s − 0.3 m, cursor_s + 15 m]` (the forward reach is the configurable
+   **endurable offset**, default 15 m — wide enough to catch the vehicle after a
+   localization jump, still far below the ≥64 m self-crossing stroke gap), gated
+   by **heading agreement**
    (route tangent vs. vehicle heading, 60° gate; widened for a single frame if
    nothing passes, so a frame is never dropped);
 2. advances the cursor **monotonically** (`cursor_s = max(cursor_s, matched_s)`)

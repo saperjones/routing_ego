@@ -4,6 +4,14 @@ from dataclasses import dataclass
 import numpy as np
 from .transform import to_body_frame
 
+# How far ahead of the progress cursor the matcher searches for the vehicle's
+# projection onto the route each frame. This is the "endurable offset": the
+# largest along-track jump the projection can absorb before the anchor falls
+# behind the vehicle (as happens on real data with localization gaps). Kept
+# well below the sim crossing-stroke separation (64-104 m) so self-crossing
+# disambiguation is preserved. Configurable via Projector(w_search=...).
+SEARCH_AHEAD = 15.0
+
 
 @dataclass
 class ProjectionResult:
@@ -17,7 +25,7 @@ class ProjectionResult:
 
 class Projector:
     def __init__(self, route, ahead=20.0, behind=-5.0,
-                 w_search=3.5, eps_back=0.3, gate_deg=60.0):
+                 w_search=SEARCH_AHEAD, eps_back=0.3, gate_deg=60.0):
         self.route = route
         self.ahead = ahead
         self.behind = behind  # emit-window bounds consumed downstream (viewer/generate), not used in matching

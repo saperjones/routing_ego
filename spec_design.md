@@ -84,7 +84,7 @@ Each of these does one job and can be tested on its own:
 
 **Carried state:** `cursor_s` (the monotonic arc-length) and `initialized`.
 
-**Constants (all configurable):** `AHEAD = +20 m`, `BEHIND = −5 m` (the projection window); `W_SEARCH = 3.5 m`, `EPS_BACK = 0.3 m` (the forward search window); `GATE = 60°` (the heading-agreement threshold).
+**Constants (all configurable):** `AHEAD = +20 m`, `BEHIND = −5 m` (the projection window); `W_SEARCH = 15 m`, `EPS_BACK = 0.3 m` (the forward search window — `W_SEARCH` is the **endurable offset**, the largest along-track jump the projection can absorb before the anchor falls behind the vehicle; kept well below the 64–104 m self-crossing stroke separation so crossing disambiguation still holds); `GATE = 60°` (the heading-agreement threshold).
 
 **Per-frame procedure:**
 1. **Seed (frame 0 only):** do one global nearest-point search over the whole route, gated by heading agreement (pick the candidate whose route tangent best lines up with the vehicle heading). This is the one allowed global search.
@@ -226,7 +226,8 @@ The forward (`bx`) coordinate is **unchanged**; only the lateral (`by`) coordina
 |-----------|----------|
 | Route start (frame 0) | behind-stub naturally shorter than 5 m; valid slice; no error |
 | Route end | ahead slice clips at last point; `end_flag` set; **no extrapolation** |
-| High-tier error at 2 m cap | search window (`W_SEARCH = 3.5 m ≥ 2 m cap + advance + margin`) still contains true match; cursor monotonic; a correlated longitudinal bias may leave the cursor slightly ahead of true and not fully retreat — **expected** under no-smoothing + monotonic progress |
+| High-tier error at 2 m cap | search window (`W_SEARCH = 15 m ≫ 2 m cap + advance + margin`) still contains true match; cursor monotonic; a correlated longitudinal bias may leave the cursor slightly ahead of true and not fully retreat — **expected** under no-smoothing + monotonic progress |
+| Real-data along-track jump (localization gap) | wide search window (`W_SEARCH = 15 m`) lets the cursor catch up so the projected anchor stays beside the vehicle instead of lagging behind (which would show as a spurious lateral offset in the recentred driver view) |
 | No candidate passes heading gate (sharp corner) | widen gate for that frame, **log** it, still emit — never drop a frame |
 | Frame-0 seed under high error | global search + heading gate lands on the correct starting segment (geometrically the wrong stroke is far away in every scenario) |
 | Self-crossing ambiguity | bounded forward window + monotonic cursor keep the match on the current stroke both passes; heading gate is backstop |

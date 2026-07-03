@@ -140,6 +140,11 @@ def viewer(base_url):
 
 
 def _select(page, case_name):
+    # all _select cases are simulation cases; ensure the sim tab is active so the
+    # test is independent of prior tests / test order (the fixture is module-scoped)
+    if "active" not in (page.get_attribute("#tab-sim", "class") or ""):
+        page.click("#tab-sim")
+        page.wait_for_selector("#case-list li.group-header")
     page.locator("#case-list li", has_text=case_name).first.click()
     page.wait_for_function(_NONBLANK, arg="#driver", timeout=6000)
     page.wait_for_function(_NONBLANK, arg="#bev", timeout=6000)
@@ -217,9 +222,12 @@ def test_scrubber_seeks(viewer):
         "#scrubber",
         "el => { el.value = el.max; el.dispatchEvent(new Event('input')); }",
     )
-    frame = page.inner_text("#tm-frame")
-    lhs, rhs = [s.strip() for s in frame.split("/")]
-    assert lhs == rhs  # seeked to the last frame
+    # wait for the seek to land on the last frame (render is driven off the event)
+    page.wait_for_function(
+        "() => { const t = document.getElementById('tm-frame').textContent.split('/');"
+        " return t.length === 2 && t[0].trim() === t[1].trim() && t[0].trim() !== '0'; }",
+        timeout=3000,
+    )
 
 def test_bev_rebuilds_on_case_switch(viewer):
     """Regression guard: switching cases must rebuild the BEV static layer."""
@@ -265,7 +273,15 @@ def test_real_tab_lists_datasets(viewer):
 
 def test_real_case_renders_bev_and_drives(viewer):
     page, errors = viewer
+    # ensure the real tab is active and its list is populated (order-independent)
+    if "active" not in (page.get_attribute("#tab-real", "class") or ""):
+        page.click("#tab-real")
+    page.wait_for_selector("#case-list li:not(.group-header)")
     page.locator("#case-list li:not(.group-header)").first.click()
+    # wait until the real case is actually loaded, not just the previous case's
+    # telemetry (the real JSON is large — asserting too early reads a stale verdict)
+    page.wait_for_function("() => typeof STATE !== 'undefined' && STATE.case"
+                           " && STATE.case.mode === 'real'", timeout=8000)
     page.wait_for_function(_NONBLANK, arg="#bev", timeout=8000)
     page.wait_for_function(_NONBLANK, arg="#driver", timeout=8000)
     bev = page.evaluate(_GEOM, "#bev")
