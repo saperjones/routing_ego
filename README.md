@@ -26,6 +26,7 @@ algorithm produced.
 ./run.sh test       # unit + acceptance suite
 ./run.sh e2e        # headless-browser end-to-end suite
 ./run.sh gen        # regenerate out/*.json only
+./run.sh gen-real   # prebake dataset/ real cases (+ OSM tiles) -> out/real/
 ./run.sh setup      # just create the venv + install deps
 PORT=9000 ./run.sh  # override the port (default 8000)
 ```
@@ -189,6 +190,20 @@ pip install -e ".[dev]"
 python -m parking_proj.generate     # writes out/
 python -m http.server 8000          # from repo root; open /viewer/index.html
 ```
+
+## Real data
+
+The viewer's **Real data** tab (default) plays back real vehicle datasets from
+`dataset/<pkg>/` (each with `ego_route_llh.json` + `route_generation_result/planned_route.json`).
+`./run.sh gen-real` runs the same projection algorithm on them (ego `llh`
+GCJ-02→WGS-84→ENU, heading `yaw_boot`+boot→ENU offset, planned route as the
+Route) and prebakes `out/real/<id>.json` plus an OSM basemap (downloads an OSM
+basemap when a compliant tile source is reachable; otherwise falls back to a gray
+grid — the route/track/arrows always render). The BEV shows the region map with the
+planned route + ego track + direction arrows, all in WGS-84. Real cases have no
+PASS/FAIL or true-lat-dev (no ground truth); `est_lat_dev` is still shown.
+
+---
 
 ## Design docs
 

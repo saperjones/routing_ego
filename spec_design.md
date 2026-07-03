@@ -274,13 +274,14 @@ Along with each case: the Route polyline plus waypoint labels, the tier/seed met
 
 ---
 
-## Extensions
+## Extensions (shipped)
 
-- **Real-data ingestion + OSM basemap** (approved, pending implementation):
-  `docs/superpowers/specs/2026-07-03-real-data-osm-design.md`. Adds Simulation /
-  Real-data tabs, runs the same algorithm on `dataset/` packages (ego GCJ-02→
-  WGS-84, `yaw_boot`+boot→ENU offset, planned route as the Route), and shows an
-  OSM basemap in the BEV. This section will be folded into the body when shipped.
+- **Real-data ingestion + OSM basemap:** Simulation / Real-data tabs; the same
+  algorithm runs on `dataset/` packages (ego GCJ-02→WGS-84, `yaw_boot`+boot→ENU
+  offset, planned route as the Route); the real-data BEV shows an OSM basemap
+  with route + ego track + direction arrows in WGS-84. Design:
+  `docs/superpowers/specs/2026-07-03-real-data-osm-design.md`; plan:
+  `docs/superpowers/plans/2026-07-03-real-data-osm.md`.
 
 ## 7. TBD
 
