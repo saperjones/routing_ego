@@ -103,6 +103,7 @@ async function selectCase(caseId, li) {
   if (li) li.classList.add("active");
   STATE.playing = false;
   await loadCase(caseId);
+  BEV_STATIC = null;
   drawPanorama();
   renderFrame();   // defined in Task 10
 }
@@ -243,9 +244,9 @@ function updateTelemetry() {
   set("tm-speed", `${(f.speed * 3.6).toFixed(1)} km/h`);
   set("tm-pos", `(${f.meas_pose.e.toFixed(2)}, ${f.meas_pose.n.toFixed(2)})`);
   set("tm-estdev", f.est_lat_dev == null ? "–" : `${f.est_lat_dev.toFixed(3)} m`);
-  set("tm-truedev", `${f.true_lat_dev.toFixed(3)} m`);
-  const prog = c.route.s.length ? (f.cursor_s / c.route.s[c.route.s.length - 1] * 100) : 0;
-  set("tm-progress", `${prog.toFixed(1)}%`);
+  set("tm-truedev", f.true_lat_dev == null ? "–" : `${f.true_lat_dev.toFixed(3)} m`);
+  const lastS = c.route.s[c.route.s.length - 1];
+  set("tm-progress", f.cursor_s == null ? "–" : `${(f.cursor_s / lastS * 100).toFixed(1)}%`);
   set("tm-seg", f.matched_seg == null ? "–" : String(f.matched_seg));
   set("tm-frame", `${STATE.frame} / ${c.frames.length - 1}`);
   const v = c.verdict;
