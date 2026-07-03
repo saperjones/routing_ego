@@ -10,6 +10,28 @@ and orientation, velocities, yaw and yaw-rate, and speed.
 > `waypoints`, `ego_track`, as `[lat, lon]` pairs). `ego_route_llh.json` is the
 > *measured ego trajectory / attitude* record. Do not confuse the two.
 
+## ⚠️ DATUM — READ FIRST
+
+**The geodetic coordinates in this file (`llh.longitude` / `llh.latitude` and
+the flattened `longitude` / `latitude`) are in GCJ-02, NOT WGS-84** — even
+though the file's own `coordinate` metadata string says "WGS84". Anyone who
+compares or fuses this file with a WGS-84 source (including
+`planned_route.json`) **must first convert GCJ-02 ⇄ WGS-84**, or positions land
+~430–570 m off (the GCJ-02 offset at ~31.83° N, 117.14° E).
+
+Two independent confirmations:
+1. **Measurement:** converting this file's track GCJ-02→WGS-84 aligns it with
+   `planned_route.json`'s WGS-84 `ego_track` to **median ≈ 0.7 m** (same drive,
+   same ~1150 m length); left raw they sit ~430–570 m apart, and the wrong-way
+   transform (WGS→GCJ) doubles the error.
+2. **Producer log:** `route_generation_result/generation.log` records the route
+   generator reading this file and reporting *"5047 原始点 → 4912 有效点(已转
+   WGS84)"* — i.e. it explicitly **converts this file's coordinates to WGS-84**
+   before use, which only makes sense if the input is not already WGS-84.
+
+The local **boot** frame (`position_boot`, etc.) is a separate metric frame; the
+datum note above concerns only the geodetic `llh` fields.
+
 Observed from: `dev_CHERY_M32T_46651_ALL_MANUAL_2026-06-22-14-08-25_20260625_101425_annotation/ego_route_llh.json`
 (`schema_version: avp_annotation_schema_2026-06-23_v6`).
 
