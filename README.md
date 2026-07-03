@@ -51,7 +51,11 @@ PORT=9000 ./run.sh  # override the port (default 8000)
   to switch it into a windshield 3D view — a pinhole projection of the route
   onto the road plane ahead (horizon, ground grid, and the route as a ribbon
   that narrows toward the vanishing point). Camera constants live in `PERSP` in
-  `viewer.js`.
+  `viewer.js`.  
+  The **"remove lateral offset"** checkbox (default ON) controls whether the
+  driver view draws the prebaked `follow_path` (cross-track offset removed,
+  heading error and curvature preserved) or the raw route slice. It applies to
+  both the top-down and the perspective driver views; the BEV is unaffected.
 - **Bottom — playback:** step ◀ ▶, play/pause, scrubber, speed (0.5×/1×/2×).
 - **Right — telemetry:** heading, speed, position, estimated & true lateral
   deviation, progress, matched segment, frame index, and the case verdict.
@@ -76,7 +80,24 @@ the route). Each frame it:
    — valid because the product rule forbids re-walking a road or U-turning;
 3. emits the route slice in `[cursor_s − 5 m, cursor_s + 20 m]` transformed into
    the body frame, plus telemetry (lateral deviation, matched segment,
-   end-of-route flag).
+   end-of-route flag);
+4. computes a **follow-path** — a forward-only, 0–70 m look-ahead, 0.5 m
+   sampled body-frame path with the cross-track offset removed (see
+   [Follow-path output](#follow-path-output-follow_path--lat_shift)), emitted
+   as `follow_path` (`[[x,y],…]`) and `lat_shift` (scalar) per frame.
+
+### Follow-path output (`follow_path` / `lat_shift`)
+
+Each frame the algorithm also emits:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `follow_path` | `[[x,y],…]` body frame | Route look-ahead with lateral offset removed. `+x` forward, `+y` left. Forward-only window `[cursor_s, cursor_s + 70 m]`, truncated at route end, sampled every 0.5 m. |
+| `lat_shift` | scalar (m) | The meters subtracted from every point's lateral coordinate. Equals the car-frame body-`y` of the anchor (route point at `cursor_s`). At zero heading error `lat_shift ≈ −est_lat_dev`. |
+
+The anchor point (`s = cursor_s`) lands at `y = 0` in `follow_path`; all forward coordinates (`x`) are identical to the raw body-frame values, so heading error and curvature are preserved. `est_lat_dev`, `cursor_s`, and `matched_seg` are **unaffected** — `follow_path` is a read-only post-processing step.
+
+The per-case `config` object includes `follow_ahead: 70.0` and `follow_ds: 0.5` so downstream consumers can interpret the window without reading source code. The exported `follow_path` is intended as the deliverable for downstream path-following controllers: an offset-free, 70 m look-ahead, body-frame path at 10 Hz.
 
 **Self-crossing routes** (the "又"/X case) are resolved by construction: on the
 first pass through a crossing the other stroke is far outside the forward
@@ -200,7 +221,8 @@ GCJ-02→WGS-84→ENU, heading `yaw_boot`+boot→ENU offset, planned route as th
 Route) and prebakes `out/real/<id>.json` plus an OSM basemap. The BEV shows the
 region map with the planned route + ego track + direction arrows, all in WGS-84.
 Real cases have no PASS/FAIL or true-lat-dev (no ground truth); `est_lat_dev` is
-still shown.
+still shown. Each real frame includes `follow_path` and `lat_shift` (same
+contract as simulation; see [Follow-path output](#follow-path-output-follow_path--lat_shift)).
 
 **Tile source (configurable).** By default tiles come from OpenStreetMap
 (`https://tile.openstreetmap.org/{z}/{x}/{y}.png`). Override via env vars to use

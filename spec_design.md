@@ -148,10 +148,48 @@ frame: {
   true_pose: {e, n, h},
   meas_pose: {e, n, h, pitch, roll},
   cursor_s, matched_seg, est_lat_dev, true_lat_dev, end_flag,
-  gt_seg, gt_s
+  gt_seg, gt_s,
+  follow_path,   ← [[x, y], …]  body frame, offset-removed (see §3.6.1)
+  lat_shift      ← scalar meters (see §3.6.1)
 }
 ```
-Along with each case: the Route polyline plus waypoint labels, the tier/seed metadata, and the graded **verdict** (PASS/FAIL plus the metric values). The viewer draws the driver-view slice from `Route`, `cursor_s`, and `meas_pose` using the fixed §3.4 rotation.
+Along with each case: the Route polyline plus waypoint labels, the tier/seed metadata, and the graded **verdict** (PASS/FAIL plus the metric values). The viewer draws the driver-view slice from `Route`, `cursor_s`, and `meas_pose` using the fixed §3.4 rotation, or directly from `follow_path` when the toggle is on (§3.7).
+
+Per-case `config` includes `follow_ahead` (= 70.0 m) and `follow_ds` (= 0.5 m) so downstream consumers can interpret the window without reading Python source.
+
+Real-data frames (`mode:"real"`) include `follow_path` and `lat_shift` but omit `true_pose`, `true_lat_dev`, `gt_seg`, and `gt_s` (no simulation ground truth).
+
+#### 3.6.1 Follow-path output (`follow_path`, `lat_shift`)
+
+**Purpose.** The raw body-frame route slice (derived from `Route` + `cursor_s`) places the matched route point at the car's measured lateral position — it reflects the car's cross-track offset from the route. When the offset is large (high-error RTK tier) the path in the driver view appears shifted sideways. The `follow_path` field re-anchors the path so the nearest route point is at lateral zero, exposing the **heading error and curvature** to the viewer (and to any downstream consumer) without the cross-track bias.
+
+**Transform (implemented in `projection.follow_path`).**
+
+Let the **anchor** `P = route.point_at_s(cursor_s)`.  
+Compute the body-frame coordinates of `P` relative to the measured pose `(pose_e, pose_n, yaw)`:
+
+```
+(_, lat_shift) = to_body_frame(P_e − pose_e, P_n − pose_n, yaw)
+```
+
+`lat_shift` is the body-`y` (left) component of the anchor in the car frame. It equals the cross-track error of the car with respect to the matched point, signed so that **positive `lat_shift` means the car is to the left of the route**. At near-zero heading error, `lat_shift ≈ −est_lat_dev` (same magnitude, opposite sign convention).
+
+For each sample `s' ∈ {cursor_s, cursor_s + ds, cursor_s + 2·ds, …}` up to `min(cursor_s + FOLLOW_AHEAD, route.length)` (forward-only, truncated at the route end):
+
+```
+Q = route.point_at_s(s')
+(bx, by) = to_body_frame(Q_e − pose_e, Q_n − pose_n, yaw)
+follow_path point = [bx, by − lat_shift]
+```
+
+The forward (`bx`) coordinate is **unchanged**; only the lateral (`by`) coordinate is shifted, so heading error and curvature are preserved. The sampling step is `FOLLOW_DS = 0.5 m`; the window length is `FOLLOW_AHEAD = 70.0 m`.
+
+**Output contract:**
+- `follow_path`: `[[x, y], …]`, body frame (`+x` forward, `+y` left), meters, 3 decimal places. Forward-only window `[cursor_s, cursor_s + 70 m]`, truncated at the route end, sampled every 0.5 m.
+- `lat_shift`: scalar, meters, 4 decimal places. The meters subtracted from the lateral coordinate of every point.
+- `est_lat_dev` is **unchanged** — grading and matching (`cursor_s`, `matched_seg`) are unaffected by the follow-path computation.
+
+**Downstream use.** The exported `follow_path` is the primary deliverable for downstream path-following controllers: an offset-free, 70 m look-ahead, body-frame path updated every frame at 10 Hz.
 
 ### 3.7 Viewer (`viewer/`)
 

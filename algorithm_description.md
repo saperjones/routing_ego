@@ -341,7 +341,82 @@ All 14 test cases pass with 0 mismatches, 0 backward jumps, and 0 dropouts.
 
 ---
 
-## 9. Summary of guarantees
+## 9. Follow-path output — lateral-offset removal (`projection.follow_path`)
+
+The stateful projector exposes one additional output per frame beyond the telemetry in §5.4: a **re-anchored body-frame path** (`follow_path`) with the cross-track offset subtracted, plus the scalar shift (`lat_shift`).
+
+### 9.1 Motivation
+
+The raw body-frame route slice places the matched route point at the car's current lateral offset from the route. Under high RTK error (up to 2 m) this offset is large and visually distracts from the heading error and curvature that a path-following controller actually cares about. `follow_path` removes the translational offset while preserving all angular information (heading error, curvature, look-ahead geometry).
+
+### 9.2 Constants
+
+```
+FOLLOW_AHEAD = 70.0   # m, forward look-ahead window
+FOLLOW_DS    = 0.5    # m, sampling step
+```
+
+Both are exported to the per-case JSON `config` object as `follow_ahead` and `follow_ds`.
+
+### 9.3 Math
+
+**Anchor.** Let `P = route.point_at_s(cursor_s)` be the route point at the current cursor, and let `(pose_e, pose_n, yaw)` be the measured pose.
+
+Compute the body-frame representation of `P` relative to the pose using the §4 rotation:
+
+```
+(d_e, d_n) = (P_e − pose_e, P_n − pose_n)
+lat_shift   = −d_e · sin(yaw) + d_n · cos(yaw)      (body-y of the anchor)
+```
+
+This is `to_body_frame(P − pose, yaw).y`.
+
+**Sampling window.** `s'` ranges over:
+
+```
+s' ∈ { cursor_s + k · FOLLOW_DS  :  k = 0, 1, 2, … }
+subject to  s' ≤ min(cursor_s + FOLLOW_AHEAD, route.length)
+```
+
+Forward-only: no behind-stub. Truncated at the route end (no extrapolation).
+
+**Per-sample transform.** For each `s'`, let `Q = route.point_at_s(s')`:
+
+```
+(bx, by) = to_body_frame(Q − pose, yaw)
+           = (  (Q_e − pose_e)·cos(yaw) + (Q_n − pose_n)·sin(yaw),
+               −(Q_e − pose_e)·sin(yaw) + (Q_n − pose_n)·cos(yaw) )
+
+follow_path[k] = [ bx,  by − lat_shift ]
+```
+
+The forward component `bx` is **identical** to the raw body-frame value; only `by` is shifted. The result: the anchor point (at `s' = cursor_s`) has `by − lat_shift = 0`, i.e. it lands on the `y = 0` (forward) axis. All subsequent points retain their angular relationship, so heading error and curvature are preserved exactly.
+
+### 9.4 Relationship to `est_lat_dev`
+
+`est_lat_dev` (§5.4) is the signed perpendicular offset measured at the **cursor point** using the route's left normal: `est_lat_dev = (pose − P) · n_left`. `lat_shift` is the body-`y` of `(P − pose)`, which is `−body_y_of(pose − P)`. At zero heading error the left-normal and the body-`y` axis coincide, so:
+
+```
+lat_shift ≈ −est_lat_dev     (exact when heading error = 0)
+```
+
+At non-zero heading error the two differ by the heading-error cross term, but remain close for small heading errors (≤ a few degrees in practice).
+
+**Crucially:** `est_lat_dev`, `cursor_s`, and `matched_seg` are computed by the `Projector` independently of `follow_path`. The follow-path computation is a read-only consumer of `cursor_s`; it does not alter matching or grading in any way.
+
+### 9.5 Properties
+
+| Property | Guarantee |
+|----------|-----------|
+| Forward-only window | `s' ≥ cursor_s` always; no behind-stub |
+| Route-end truncation | `s' ≤ route.length`; no extrapolation |
+| Lateral anchor | anchor point `s' = cursor_s` has `by = 0` in `follow_path` |
+| Forward coordinate | `bx` unchanged from raw body-frame; heading error preserved |
+| Matching unaffected | `cursor_s`, `matched_seg`, `est_lat_dev` computed before and independently of `follow_path` |
+
+---
+
+## 10. Summary of guarantees
 
 - **Monotone progress** is algebraically guaranteed by the `max` in §5.3.
 - **Correct stroke at self-crossings** follows from the window width `W` being
