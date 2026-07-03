@@ -165,7 +165,7 @@ All 14 cases pass (0 mismatches, 0 backward jumps, 0 dropouts).
 ## Testing
 
 ```bash
-pytest -v            # 31 unit + acceptance tests (fast, no browser)
+pytest -v            # 47 unit + acceptance tests (fast, no browser)
 ```
 
 **End-to-end (headless browser):**
@@ -173,14 +173,18 @@ pytest -v            # 31 unit + acceptance tests (fast, no browser)
 ```bash
 pip install -e ".[e2e]"
 python -m playwright install chromium
-pytest -m e2e -v     # 9 tests
+pytest -m e2e -v     # 15 tests
 ```
 
 The e2e suite serves the repo root, drives the viewer in headless Chromium, and
 asserts the canvases render with meaningful coverage (the route spans the
 canvas, not just a stray pixel), telemetry populates, playback steps, the
 scrubber seeks, the BEV layer rebuilds on case switch, and **no JS errors**
-occur. It's excluded from the default `pytest` run via the `e2e` marker.
+occur. It also verifies the follow-path **web effect** at the pixel level: with
+"remove lateral offset" on, the driver-view route stroke renders at the car's
+centreline (directly ahead); with it off, the stroke is displaced sideways, and
+the two renders differ horizontally by exactly `lat_shift × pixels-per-metre`.
+It's excluded from the default `pytest` run via the `e2e` marker.
 
 ---
 
