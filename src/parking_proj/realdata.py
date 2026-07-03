@@ -2,6 +2,7 @@
 import json
 import math
 import os
+import warnings
 from dataclasses import dataclass
 import numpy as np
 from . import geo, geometry
@@ -53,8 +54,10 @@ def is_dataset_dir(path):
 
 
 def load_dataset(path):
-    ego = json.load(open(_ego_path(path)))
-    pr = json.load(open(_planned_path(path)))
+    with open(_ego_path(path)) as fh:
+        ego = json.load(fh)
+    with open(_planned_path(path)) as fh:
+        pr = json.load(fh)
     pts = ego["points"]
 
     # planned route + waypoints are WGS-84 [lat, lon]
@@ -72,7 +75,12 @@ def load_dataset(path):
     ego_wgs = np.array([geo.gcj02_to_wgs84(p["latitude"], p["longitude"]) for p in pts])
     ego_enu = np.array([geo.enu_about(la, lo, lat0, lon0) for la, lo in ego_wgs])
     pos_boot = np.array([[p["position_boot"]["x"], p["position_boot"]["y"]] for p in pts])
-    theta, _scale = estimate_boot_to_enu_theta(pos_boot, ego_enu)
+    theta, scale = estimate_boot_to_enu_theta(pos_boot, ego_enu)
+    if abs(scale - 1.0) > 0.05:
+        warnings.warn(
+            f"boot->ENU scale {scale:.3f} deviates from 1.0 for "
+            f"{os.path.basename(os.path.normpath(path))}; heading offset may be unreliable"
+        )
 
     yaw_boot = np.array([p["yaw_boot"] for p in pts], float)
     return RealDataset(

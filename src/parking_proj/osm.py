@@ -1,5 +1,7 @@
 """Web-Mercator slippy-tile math (EPSG:3857, 256-px tiles)."""
 import math
+import os
+import urllib.request
 
 TILE = 256
 
@@ -31,9 +33,6 @@ def choose_zoom(min_lon, min_lat, max_lon, max_lat, max_tiles=25, zmax=18):
             best = z
     return best
 
-
-import os
-import urllib.request
 
 _TILE_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
 _UA = "parking-route-projection/0.1 (offline research viewer)"
