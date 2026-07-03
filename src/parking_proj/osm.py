@@ -56,16 +56,24 @@ def fetch_basemap(min_lon, min_lat, max_lon, max_lat, out_dir,
     if z < 1:
         return None
     x0, y0, nx, ny = tile_span(min_lon, min_lat, max_lon, max_lat, z)
-    tiles_dir = os.path.join(out_dir, "tiles")
-    os.makedirs(tiles_dir, exist_ok=True)
-    tiles = []
+    fetched = []
     for x in range(x0, x0 + nx):
         for y in range(y0, y0 + ny):
             data = getter(z, x, y)
             if not data:
                 return None
-            fname = f"tiles/{z}_{x}_{y}.png"
-            with open(os.path.join(out_dir, fname), "wb") as fh:
-                fh.write(data)
-            tiles.append({"x": x, "y": y, "file": fname})
+            fetched.append((x, y, data))
+    # A server that refuses scripted access (e.g. OSM tile-usage policy) returns
+    # an identical "blocked" tile for every request; if all tiles are byte-identical,
+    # treat it as no basemap so the viewer uses its gray fallback.
+    if len(fetched) >= 2 and len({d for _, _, d in fetched}) == 1:
+        return None
+    tiles_dir = os.path.join(out_dir, "tiles")
+    os.makedirs(tiles_dir, exist_ok=True)
+    tiles = []
+    for x, y, data in fetched:
+        fname = f"tiles/{z}_{x}_{y}.png"
+        with open(os.path.join(out_dir, fname), "wb") as fh:
+            fh.write(data)
+        tiles.append({"x": x, "y": y, "file": fname})
     return {"z": z, "x0": x0, "y0": y0, "nx": nx, "ny": ny, "tile": TILE, "tiles": tiles}

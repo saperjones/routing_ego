@@ -164,7 +164,8 @@ function buildRealTransform(c, cv) {
     miny = Math.min(miny, p.y); maxy = Math.max(maxy, p.y);
   }
   const pad = 8;
-  const s = Math.min((cv.width - 2 * pad) / (maxx - minx), (cv.height - 2 * pad) / (maxy - miny));
+  const s = Math.min((cv.width - 2 * pad) / Math.max(maxx - minx, 1e-6),
+                     (cv.height - 2 * pad) / Math.max(maxy - miny, 1e-6));
   const ox = pad + (cv.width - 2 * pad - (maxx - minx) * s) / 2;
   const oy = pad + (cv.height - 2 * pad - (maxy - miny) * s) / 2;
   return { z, toX: gx => ox + (gx - minx) * s, toY: gy => oy + (gy - miny) * s };
@@ -445,8 +446,9 @@ function drawPanoramaDot() {
   const b = routeBounds(c);
   const T = fitTransform(cv, b.minE, b.maxE, b.minN, b.maxN);
   const f = c.frames[STATE.frame];
+  const pose = f.true_pose || f.meas_pose;   // real cases carry meas_pose, not true_pose
   ctx.fillStyle = "#111";
-  ctx.beginPath(); ctx.arc(T.toX(f.true_pose.e), T.toY(f.true_pose.n), 3, 0, 2 * Math.PI); ctx.fill();
+  ctx.beginPath(); ctx.arc(T.toX(pose.e), T.toY(pose.n), 3, 0, 2 * Math.PI); ctx.fill();
 }
 
 function updateTelemetry() {
