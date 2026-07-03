@@ -134,6 +134,9 @@ def _select(page, case_name):
 
 def test_case_list_populates(viewer):
     page, _ = viewer
+    # on fresh page load the Real-data tab is the default (acceptance #1)
+    assert "active" in (page.get_attribute("#tab-real", "class") or "")
+    assert "active" not in (page.get_attribute("#tab-sim", "class") or "")
     page.click("#tab-sim")
     page.wait_for_selector("#case-list li.group-header")
     rows = page.locator("#case-list li:not(.group-header)")
@@ -238,13 +241,11 @@ def test_no_js_errors(viewer):
     assert errors == [], f"JS errors during viewer use: {errors}"
 
 
-def test_real_tab_is_default_and_lists_datasets(viewer):
+def test_real_tab_lists_datasets(viewer):
     page, _ = viewer
-    # ensure we are on the real tab (default tab is Real data)
+    # prior sim tests left the sim tab active; switch back to real
     page.click("#tab-real")
     page.wait_for_selector("#case-list li:not(.group-header)")
-    # default tab is Real data
-    assert "active" in (page.get_attribute("#tab-real", "class") or "")
     rows = page.locator("#case-list li:not(.group-header)")
     assert rows.count() >= 1                      # at least the sample dataset
 
