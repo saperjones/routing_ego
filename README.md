@@ -3,7 +3,14 @@
 Projects a global (ENU) planned route into the vehicle-body frame each frame,
 with a seeded two-layer simulation and a static HTML viewer.
 
-## Setup
+## Quick start
+    ./run.sh            # create venv, generate cases, serve viewer, open browser
+    ./run.sh test       # unit + acceptance suite
+    ./run.sh e2e        # headless-browser end-to-end suite
+    ./run.sh gen        # regenerate out/*.json only
+    # override the port with:  PORT=9000 ./run.sh
+
+## Setup (manual)
     pip install -e ".[dev]"
 
 ## Test
