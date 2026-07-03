@@ -5,6 +5,10 @@ body { margin: 0; font: 13px/1.4 system-ui, sans-serif; color: #222; }
 #center { padding: 10px; display: flex; flex-direction: column; gap: 8px; }
 canvas { background: #fff; border: 1px solid #ccd; display: block; }
 .fig h3 { margin: 4px 0; font-size: 13px; font-weight: 600; }
+#tabs { display: flex; gap: 4px; margin-bottom: 8px; }
+#tabs .tab { flex: 1; padding: 6px 8px; border: 1px solid #ccd; background: #eef0f3;
+  cursor: pointer; border-radius: 4px 4px 0 0; font-weight: 600; }
+#tabs .tab.active { background: #d3e0f5; border-bottom-color: #d3e0f5; }
 #case-list { list-style: none; padding: 0; margin: 0 0 12px; }
 #case-list li { padding: 5px 8px; cursor: pointer; border-radius: 4px; }
 #case-list li:hover { background: #e6ebf2; }

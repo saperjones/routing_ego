@@ -1,4 +1,4 @@
-const STATE = { case: null, frame: 0, playing: false, speed: 1 };
+const STATE = { case: null, frame: 0, playing: false, speed: 1, mode: "real" };
 
 const GROUP_NAMES = {
   A: "Straight", B: "Smooth turn", C: "Near-90 corner", D: "S-shape",
@@ -6,22 +6,26 @@ const GROUP_NAMES = {
 };
 
 async function loadIndex() {
-  const res = await fetch("../out/index.json");
-  const data = await res.json();
+  const url = STATE.mode === "real" ? "../out/real/index.json" : "../out/index.json";
   const ul = document.getElementById("case-list");
   ul.innerHTML = "";
+  let data;
+  try { data = await (await fetch(url)).json(); }
+  catch (e) { ul.innerHTML = "<li>(no cases — run ./run.sh " +
+    (STATE.mode === "real" ? "gen-real" : "gen") + ")</li>"; return; }
   let lastGroup = null;
   for (const c of data.cases) {
-    if (c.group !== lastGroup) {
+    if (STATE.mode === "sim" && c.group !== lastGroup) {
       const h = document.createElement("li");
       h.className = "group-header";
       h.textContent = GROUP_NAMES[c.group] || c.group;
-      ul.appendChild(h);
-      lastGroup = c.group;
+      ul.appendChild(h); lastGroup = c.group;
     }
     const li = document.createElement("li");
-    const pass = c.verdict.passed;
-    li.innerHTML = `${c.name}<span class="badge ${pass ? "pass" : "fail"}">${pass ? "PASS" : "FAIL"}</span>`;
+    const badge = c.verdict
+      ? `<span class="badge ${c.verdict.passed ? "pass" : "fail"}">${c.verdict.passed ? "PASS" : "FAIL"}</span>`
+      : "";
+    li.innerHTML = `${c.name}${badge}`;
     li.onclick = () => selectCase(c.case_id, li);
     ul.appendChild(li);
   }
@@ -109,6 +113,18 @@ async function selectCase(caseId, li) {
 }
 
 window.addEventListener("DOMContentLoaded", loadIndex);
+
+function selectTab(mode) {
+  STATE.mode = mode;
+  document.getElementById("tab-real").classList.toggle("active", mode === "real");
+  document.getElementById("tab-sim").classList.toggle("active", mode === "sim");
+  STATE.case = null; STATE.playing = false;
+  loadIndex();
+}
+window.addEventListener("DOMContentLoaded", () => {
+  document.getElementById("tab-real").onclick = () => selectTab("real");
+  document.getElementById("tab-sim").onclick = () => selectTab("sim");
+});
 
 // ---- offscreen static layers (anti-flicker) ----
 let BEV_STATIC = null, BEV_T = null;
@@ -334,7 +350,7 @@ function updateTelemetry() {
   set("tm-seg", f.matched_seg == null ? "–" : String(f.matched_seg));
   set("tm-frame", `${STATE.frame} / ${c.frames.length - 1}`);
   const v = c.verdict;
-  set("tm-verdict", `${v.passed ? "PASS" : "FAIL"} (mis ${v.mismatches})`);
+  set("tm-verdict", v ? `${v.passed ? "PASS" : "FAIL"} (mis ${v.mismatches})` : "— (real data)");
 }
 
 let lastTick = 0;
