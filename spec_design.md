@@ -19,7 +19,7 @@ The hard part is doing this **robustly**. "Robustly" here means: always know *wh
 - Not building the downstream controller.
 - No underground/no-GPS, no non-RTK localization.
 - No re-walking a road and no U-turn-and-repeat routes (disallowed by product definition; the monotonic-progress design relies on this guarantee).
-- No camera-calibrated perspective; a **default pinhole** camera model powers a nice-to-have windshield view only. ("Pinhole" = the simplest camera model.)
+- No camera-calibrated perspective; a **default pinhole** camera model powers the windshield view only. ("Pinhole" = the simplest camera model.) *(Implemented as the driver-view perspective toggle — see §3.7.)*
 
 **Coordinate conventions (authoritative):**
 - **Global:** WGS84.
@@ -166,7 +166,7 @@ Along with each case: the Route polyline plus waypoint labels, the tier/seed met
 │  scenario, │ └───────────────────────────┘  │ est lat dev*     │
 │  PASS/FAIL │ ┌───────────────────────────┐  │ true lat dev(ref)│
 │  badges)   │ │ driver-view (+x up,+y left)│  │ progress %       │
-│ ┌────────┐ │ │ +pinhole overlay (toggle) │  │ matched seg      │
+│ ┌────────┐ │ │ +perspective 3D (toggle)  │  │ matched seg      │
 │ │panorama│ │ └───────────────────────────┘  │ frame k/N        │
 │ │1,2,3…  │ │ [◀ ▮ ▶  ●━━━━━ scrubber  ×spd]│  │ PASS/FAIL, %     │
 │ └────────┘ │                                │                  │
@@ -175,7 +175,7 @@ Along with each case: the Route polyline plus waypoint labels, the tier/seed met
 
 - **Panorama (left):** the whole planned route, with **waypoints numbered 1,2,3,…** and direction arrowheads, plus a small dot at the car's current position.
 - **BEV (center-top):** the planned route (light) plus the accumulated driven trajectory (bold) plus an oriented car marker at the true pose. It uses a fixed transform and is drawn north-up.
-- **Driver-view (center-bottom):** the body-frame slice — car at the origin, `+x` up (forward), `+y` left — showing the projected route ahead plus the behind-stub. It has a nice-to-have **pinhole perspective overlay** you can toggle on: the default camera is ~1.4 m high, pitched slightly down, ~60° horizontal field of view, principal point centered — all exposed as config constants.
+- **Driver-view (center-bottom):** by default this is the body-frame slice — car at the origin, `+x` up (forward), `+y` left — showing the projected route ahead plus the behind-stub. Ticking the **perspective** checkbox switches the panel into a **windshield 3D view**: the route is projected through a forward-looking pinhole camera onto the road plane ahead, drawn with a sky and horizon line, a perspective ground grid for depth, and the trajectory as a ribbon that is wide near the car and **narrows toward the vanishing point** on the horizon (with a dashed centerline). The default camera is ~1.4 m high, pitched slightly down (~3°), ~60° horizontal field of view, principal point centered; these plus the ribbon half-width are exposed as config constants (`PERSP` in `viewer.js`). This is still pure rendering — a fixed projection of prebaked route points, no matching.
 - **Controls:** play/pause, step ±1, scrubber, speed ×0.5/×1/×2. Selecting a case loads its JSON and resets to frame 0.
 - **Anti-flicker:** each figure is a `<canvas>` with a **fixed world→screen transform** computed once from the route bounds (so there is no mid-play pan or zoom). The static layer (route, panorama) is drawn once onto an offscreen canvas and then copied in ("blitted"); only the car marker and the slice are redrawn each frame, via `requestAnimationFrame` throttled to 10 Hz.
 
@@ -236,6 +236,7 @@ Along with each case: the Route polyline plus waypoint labels, the tier/seed met
 | V2 | play / step / scrub | frame-step + continuous play work; telemetry (heading, speed, pos, est+true lat-dev, progress, seg, frame k/N) updates |
 | V3 | continuous play | fixed transform → no pan/zoom flicker; static layer blitted; only car+slice redraw |
 | V4 | click between cases | no regeneration; identical data each time (frozen JSON) |
+| V5 | tick the perspective checkbox | driver-view switches to the windshield 3D view (sky/horizon/grid + tapering route ribbon); no JS errors; unticking returns to the top-down slice |
 
 ### 5.5 Test-case matrix (14 cases)
 
@@ -275,8 +276,8 @@ Along with each case: the Route polyline plus waypoint labels, the tier/seed met
 
 ## 7. TBD
 
-- Exact default pinhole camera parameters (height/pitch/HFOV/principal point) for the nice-to-have perspective overlay — set as config constants at implementation time; not on the acceptance path.
-- Exact Hefei ENU origin lat/lon — pick a concrete Hefei coordinate at implementation time (does not affect algorithm behavior).
+- ~~Exact default pinhole camera parameters~~ — *resolved:* the perspective view uses `PERSP` in `viewer.js` (height 1.4 m, pitch 3°, HFOV 60°, principal point centered, ribbon half-width 0.7 m); still off the acceptance path.
+- Exact Hefei ENU origin lat/lon — pick a concrete Hefei coordinate at implementation time (does not affect algorithm behavior). *(Implemented as `31.8206, 117.2290` in `geo.py`.)*
 
 ---
 
