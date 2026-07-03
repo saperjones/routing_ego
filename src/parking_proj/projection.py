@@ -2,6 +2,7 @@
 import math
 from dataclasses import dataclass
 import numpy as np
+from .transform import to_body_frame
 
 
 @dataclass
@@ -75,3 +76,29 @@ class Projector:
             end_flag=end_flag,
             gate_widened=widened,
         )
+
+
+FOLLOW_AHEAD = 70.0
+FOLLOW_DS = 0.5
+
+
+def follow_path(route, pose_e, pose_n, yaw, cursor_s, ahead=FOLLOW_AHEAD, ds=FOLLOW_DS):
+    """Re-anchored body-frame path with the lateral offset removed.
+
+    Anchor P = route point at cursor_s. Each sampled route point ahead is
+    expressed in the car-heading body frame (+x fwd, +y left), then shifted
+    laterally by the car-frame lateral of P so P lands on y=0. Forward-only
+    window [cursor_s, cursor_s+ahead], truncated at route end, sampled at ds.
+    Returns (points, lat_shift): points is a list of [x, y]; lat_shift is the
+    meters subtracted (car-frame lateral of the anchor).
+    """
+    px, py = route.point_at_s(cursor_s)
+    _, lat_shift = to_body_frame(px - pose_e, py - pose_n, yaw)
+    end_s = min(cursor_s + ahead, route.length)
+    n = int((end_s - cursor_s) / ds) + 1
+    pts = []
+    for k in range(n):
+        qx, qy = route.point_at_s(cursor_s + k * ds)
+        bx, by = to_body_frame(qx - pose_e, qy - pose_n, yaw)
+        pts.append([bx, by - lat_shift])
+    return pts, lat_shift
