@@ -1,14 +1,13 @@
 """Run all scenarios, grade them, and write prebaked JSON for the viewer."""
 import json
 import os
-import numpy as np
 from .simulate import simulate, SimConfig
 from .projection import Projector
 from .scenarios import build_scenarios
 from . import grade as grading
 
 
-def _round2(a):
+def _round3(a):
     return [round(float(x), 3) for x in a]
 
 
@@ -49,13 +48,13 @@ def build_case_dict(scenario) -> dict:
         "name": scenario.name,
         "tier": scenario.tier,
         "route": {
-            "points_e": _round2(route.points[:, 0]),
-            "points_n": _round2(route.points[:, 1]),
-            "s": _round2(route.s),
+            "points_e": _round3(route.points[:, 0]),
+            "points_n": _round3(route.points[:, 1]),
+            "s": _round3(route.s),
             "waypoint_indices": route.waypoint_indices,
             "waypoint_labels": route.waypoint_labels,
         },
-        "config": {"ahead": 20.0, "behind": -5.0},
+        "config": {"ahead": proj.ahead, "behind": proj.behind},
         "frames": frame_dicts,
         "verdict": verdict,
     }
