@@ -30,3 +30,42 @@ def choose_zoom(min_lon, min_lat, max_lon, max_lat, max_tiles=25, zmax=18):
         if nx * ny <= max_tiles:
             best = z
     return best
+
+
+import os
+import urllib.request
+
+_TILE_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+_UA = "parking-route-projection/0.1 (offline research viewer)"
+
+
+def _http_tile(z, x, y):
+    url = _TILE_URL.format(z=z, x=x, y=y)
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": _UA})
+        with urllib.request.urlopen(req, timeout=10) as r:
+            return r.read()
+    except Exception:
+        return None
+
+
+def fetch_basemap(min_lon, min_lat, max_lon, max_lat, out_dir,
+                  max_tiles=25, tile_getter=None):
+    getter = tile_getter or _http_tile
+    z = choose_zoom(min_lon, min_lat, max_lon, max_lat, max_tiles)
+    if z < 1:
+        return None
+    x0, y0, nx, ny = tile_span(min_lon, min_lat, max_lon, max_lat, z)
+    tiles_dir = os.path.join(out_dir, "tiles")
+    os.makedirs(tiles_dir, exist_ok=True)
+    tiles = []
+    for x in range(x0, x0 + nx):
+        for y in range(y0, y0 + ny):
+            data = getter(z, x, y)
+            if not data:
+                return None
+            fname = f"tiles/{z}_{x}_{y}.png"
+            with open(os.path.join(out_dir, fname), "wb") as fh:
+                fh.write(data)
+            tiles.append({"x": x, "y": y, "file": fname})
+    return {"z": z, "x0": x0, "y0": y0, "nx": nx, "ny": ny, "tile": TILE, "tiles": tiles}
