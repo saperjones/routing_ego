@@ -6,10 +6,15 @@ dependencies = ["numpy>=1.26"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]
+e2e = ["playwright>=1.40"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
 testpaths = ["tests"]
+addopts = "-m 'not e2e'"
+markers = [
+    "e2e: end-to-end browser tests (requires playwright chromium; run with -m e2e)",
+]
 
 [build-system]
 requires = ["setuptools>=68"]
