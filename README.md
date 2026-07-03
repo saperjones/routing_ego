@@ -197,11 +197,25 @@ The viewer's **Real data** tab (default) plays back real vehicle datasets from
 `dataset/<pkg>/` (each with `ego_route_llh.json` + `route_generation_result/planned_route.json`).
 `./run.sh gen-real` runs the same projection algorithm on them (ego `llh`
 GCJ-02→WGS-84→ENU, heading `yaw_boot`+boot→ENU offset, planned route as the
-Route) and prebakes `out/real/<id>.json` plus an OSM basemap (downloads an OSM
-basemap when a compliant tile source is reachable; otherwise falls back to a gray
-grid — the route/track/arrows always render). The BEV shows the region map with the
-planned route + ego track + direction arrows, all in WGS-84. Real cases have no
-PASS/FAIL or true-lat-dev (no ground truth); `est_lat_dev` is still shown.
+Route) and prebakes `out/real/<id>.json` plus an OSM basemap. The BEV shows the
+region map with the planned route + ego track + direction arrows, all in WGS-84.
+Real cases have no PASS/FAIL or true-lat-dev (no ground truth); `est_lat_dev` is
+still shown.
+
+**Tile source (configurable).** By default tiles come from OpenStreetMap
+(`https://tile.openstreetmap.org/{z}/{x}/{y}.png`). Override via env vars to use
+a compliant provider / API key:
+
+```bash
+PARKING_TILE_URL="https://tile.example.com/{z}/{x}/{y}.png?apikey={key}" \
+PARKING_TILE_KEY="your-key" \
+PARKING_TILE_UA="your-app/1.0 (contact@you)" \
+  ./run.sh gen-real
+```
+
+`{z}/{x}/{y}` and optional `{key}` are substituted per tile. If the tile server
+is unreachable or refuses scripted access (returns an identical "blocked" tile),
+the BEV falls back to a gray grid and the route/track/arrows still render.
 
 ---
 

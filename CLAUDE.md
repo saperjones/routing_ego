@@ -20,7 +20,9 @@
   true_lat_dev). The viewer's real-data BEV renders an OSM basemap in Web-Mercator
   with route+track+arrows; all coordinates are converted to WGS-84 (ego `llh` is
   GCJ-02). When a compliant tile source is not reachable, the BEV falls back to a
-  gray graticule — the route/track/arrows always render.
+  gray graticule — the route/track/arrows always render. Tile source is
+  configurable via env: `PARKING_TILE_URL` (template with `{z}/{x}/{y}`, optional
+  `{key}`), `PARKING_TILE_KEY`, `PARKING_TILE_UA` (default OpenStreetMap).
 - `geo.py` is the single place WGS-84 ⇄ ENU conversion happens; nothing else
   touches lat/lon.
 - All randomness is seeded (`numpy.random.default_rng`), so regeneration is

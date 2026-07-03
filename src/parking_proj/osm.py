@@ -34,14 +34,27 @@ def choose_zoom(min_lon, min_lat, max_lon, max_lat, max_tiles=25, zmax=18):
     return best
 
 
-_TILE_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
-_UA = "parking-route-projection/0.1 (offline research viewer)"
+_DEFAULT_TILE_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+_DEFAULT_UA = "parking-route-projection/0.1 (offline research viewer)"
+
+
+def build_tile_url(template, z, x, y, key=""):
+    """Fill a slippy-tile URL template. Supports {z}, {x}, {y}, and optional {key}."""
+    return template.format(z=z, x=x, y=y, key=key)
 
 
 def _http_tile(z, x, y):
-    url = _TILE_URL.format(z=z, x=x, y=y)
+    # Tile source is configurable via environment variables so a compliant
+    # provider / API key can be used (default: OpenStreetMap):
+    #   PARKING_TILE_URL  URL template with {z}/{x}/{y} (and optional {key})
+    #   PARKING_TILE_KEY  API key substituted into {key}
+    #   PARKING_TILE_UA   User-Agent header
+    template = os.environ.get("PARKING_TILE_URL", _DEFAULT_TILE_URL)
+    ua = os.environ.get("PARKING_TILE_UA", _DEFAULT_UA)
+    key = os.environ.get("PARKING_TILE_KEY", "")
     try:
-        req = urllib.request.Request(url, headers={"User-Agent": _UA})
+        url = build_tile_url(template, z, x, y, key)
+        req = urllib.request.Request(url, headers={"User-Agent": ua})
         with urllib.request.urlopen(req, timeout=10) as r:
             return r.read()
     except Exception:

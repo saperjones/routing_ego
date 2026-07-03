@@ -31,3 +31,9 @@ def test_fetch_returns_none_when_all_tiles_identical(tmp_path):
     blocked = b"\x89PNG\r\n\x1a\nIDENTICAL-BLOCKED-TILE"
     man = osm.fetch_basemap(*box, out_dir=str(tmp_path), tile_getter=lambda z, x, y: blocked)
     assert man is None
+
+
+def test_build_tile_url_templating():
+    assert osm.build_tile_url("https://t/{z}/{x}/{y}.png", 16, 3, 5) == "https://t/16/3/5.png"
+    assert (osm.build_tile_url("https://t/{z}/{x}/{y}.png?k={key}", 1, 2, 3, key="ABC")
+            == "https://t/1/2/3.png?k=ABC")
