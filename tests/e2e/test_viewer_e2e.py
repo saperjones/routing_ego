@@ -47,6 +47,21 @@ _SIGNATURE = """(sel) => {
   return n * 1000003 + sum;
 }"""
 
+# JS: drawn-pixel count and bounding box [minx, miny, maxx, maxy] of a canvas
+_GEOM = """(sel) => {
+  const c = document.querySelector(sel);
+  const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+  let n = 0, minx = 1e9, miny = 1e9, maxx = -1, maxy = -1;
+  for (let y = 0; y < c.height; y++) for (let x = 0; x < c.width; x++) {
+    if (d[(y * c.width + x) * 4 + 3] > 0) {
+      n++;
+      if (x < minx) minx = x; if (x > maxx) maxx = x;
+      if (y < miny) miny = y; if (y > maxy) maxy = y;
+    }
+  }
+  return {w: c.width, h: c.height, drawn: n, bbox: [minx, miny, maxx, maxy]};
+}"""
+
 
 def _free_port():
     s = socket.socket()
@@ -133,6 +148,23 @@ def test_canvases_render_for_selected_case(viewer):
     _select(page, "X-crossing (low)")
     assert page.evaluate(_NONBLANK, "#bev") is True
     assert page.evaluate(_NONBLANK, "#driver") is True
+
+
+def test_render_has_meaningful_coverage(viewer):
+    """Guard against 'renders a stray pixel' false-passes: the route must
+    actually span the canvas, not just leave a dot."""
+    page, _ = viewer
+    _select(page, "X-crossing (low)")
+    bev = page.evaluate(_GEOM, "#bev")
+    drv = page.evaluate(_GEOM, "#driver")
+    # BEV: the X-shaped route spans a large fraction of the canvas both ways
+    assert bev["drawn"] > 1500, bev
+    assert (bev["bbox"][2] - bev["bbox"][0]) > bev["w"] * 0.4, bev
+    assert (bev["bbox"][3] - bev["bbox"][1]) > bev["h"] * 0.4, bev
+    # Driver view: at the start the path runs straight ahead, so it must have a
+    # tall vertical extent (the projected route going forward/up).
+    assert drv["drawn"] > 300, drv
+    assert (drv["bbox"][3] - drv["bbox"][1]) > drv["h"] * 0.4, drv
 
 
 def test_telemetry_populates(viewer):
