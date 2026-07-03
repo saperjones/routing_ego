@@ -199,7 +199,9 @@ function drawDriver() {
 }
 
 // PERSP: pinhole camera constants (driver's eye). Exposed for tweaking.
-const PERSP = { H: 1.4, pitch_deg: 3, hfov_deg: 60, half_width: 0.7 };
+// pitch_deg is a downward tilt: enough to bring the near road (a few m ahead)
+// into frame so the path emanates from the driver, not just near the horizon.
+const PERSP = { H: 1.4, pitch_deg: 10, hfov_deg: 70, half_width: 0.7 };
 
 // Windshield ("stereoscopic") view: project the route onto the road plane
 // ahead through a forward-looking pinhole camera, with a horizon, a ground
@@ -247,6 +249,10 @@ function drawWindshield(ctx, f) {
     if (a && b) { ctx.beginPath(); ctx.moveTo(a.u, a.v); ctx.lineTo(b.u, b.v); ctx.stroke(); }
   }
 
+  // forward center line (straight-ahead reference from the driver)
+  ctx.strokeStyle = "rgba(120,130,145,0.5)"; ctx.lineWidth = 1; ctx.setLineDash([4, 6]);
+  ctx.beginPath(); ctx.moveTo(cx, hy); ctx.lineTo(cx, h); ctx.stroke(); ctx.setLineDash([]);
+
   // route ribbon: edges offset +/- half_width in the body frame
   const HW = PERSP.half_width;
   const s = STATE.case.route.s, e = STATE.case.route.points_e, n = STATE.case.route.points_n;
@@ -276,6 +282,19 @@ function drawWindshield(ctx, f) {
     for (const p of mid) ctx.lineTo(p.u, p.v);
     ctx.stroke(); ctx.setLineDash([]);
   }
+
+  // driver anchor: a "hood" band across the bottom + an ego arrow marking the
+  // car's position (bottom-center, pointing forward) so the view is clearly
+  // centered on the driver.
+  ctx.fillStyle = "#3a3f47";
+  ctx.beginPath();
+  ctx.moveTo(w * 0.30, h); ctx.lineTo(w * 0.70, h);
+  ctx.lineTo(w * 0.60, h - 16); ctx.lineTo(w * 0.40, h - 16);
+  ctx.closePath(); ctx.fill();
+  ctx.fillStyle = "#cc3a3a";
+  ctx.beginPath();
+  ctx.moveTo(cx, h - 20); ctx.lineTo(cx - 7, h - 8); ctx.lineTo(cx + 7, h - 8);
+  ctx.closePath(); ctx.fill();
 
   ctx.fillStyle = "#556"; ctx.font = "11px sans-serif";
   ctx.fillText("driver view (perspective)", 8, 16);
