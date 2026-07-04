@@ -192,6 +192,8 @@ The portable function `project_route(route, pose_e, pose_n, yaw, config, state=N
 | `min_turn_radius_m` | 5.0 | arc-fillet min radius (m); `smoothed` only |
 | `corner_angle_deg` | 10.0 | min angle to fillet (degrees); `smoothed` only |
 | `simplify_eps_m` | 0.20 | RDP tolerance (m); `smoothed` only |
+| `corner_style` | `"clothoid"` | `"arc"` or `"clothoid"`; `smoothed` only |
+| `clothoid_transition_m` | 1.5 | clothoid spiral transition length (m); `smoothed`+`clothoid` only |
 
 **`ProjectState`**: `cursor_s`, `initialized` — the caller holds this between frames.
 
@@ -201,7 +203,7 @@ The portable function `project_route(route, pose_e, pose_n, yaw, config, state=N
 
 - **`"raw"`** — body-frame rotation only; lateral offset preserved.
 - **`"centered"`** — lateral shift subtracted so the matched anchor sits at `y = 0`; preserves heading error and curvature.
-- **`"smoothed"`** — same shift as `"centered"`, then the forward portion is passed through `smooth_corners`: RDP simplification (tolerance `simplify_eps_m`), followed by circular-arc fillet with `T = R_min · tan(δ/2)` clamped to half the adjacent leg, `R_eff = T / tan(δ/2)`. For non-degenerate legs, curvature `κ ≤ 1 / min_turn_radius_m`; the behind-stub is not smoothed.
+- **`"smoothed"`** — same shift as `"centered"`, then the forward portion is passed through `smooth_corners`: RDP simplification (tolerance `simplify_eps_m`), followed by a corner fillet. When `corner_style="clothoid"`, each corner uses a symmetric clothoid (Euler spiral) with curvature ramping linearly 0→1/R over `clothoid_transition_m`, an optional constant-curvature arc, then back to 0; the fit is tried at factors 1, 0.5, 0.25 of the transition length and falls back to an arc if none fit. When `corner_style="arc"` (or clothoid fallback), a circular-arc fillet with `T = R_min · tan(δ/2)` clamped to half the adjacent leg, `R_eff = T / tan(δ/2)`. For non-degenerate legs, peak curvature `κ ≤ 1 / min_turn_radius_m`; the behind-stub is not smoothed.
 
 See `docs/project_route_function.md` for the full math derivation.
 
@@ -321,7 +323,7 @@ See `docs/project_route_function.md` for the full math derivation.
 | Bounded projection accuracy | S1–S3 |
 | No dropouts | S1, E1–E4 |
 | Viewer behavior | V1–V7 |
-| Python↔JS parity (path, matched_seg, end_flag) | `tests/e2e/test_parity_py_js.py` (30 cases × 3 strategies) |
+| Python↔JS parity (path, matched_seg, end_flag) | `tests/e2e/test_parity_py_js.py` (40 cases: 2 routes × 5 poses × 4 strategy/corner-style combos) |
 
 ---
 
