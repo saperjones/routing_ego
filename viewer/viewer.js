@@ -118,6 +118,7 @@ async function selectCase(caseId, li) {
   await loadCase(caseId);
   BEV_STATIC = null;
   BEVREAL_STATIC = null;
+  ROUTE_JS_CASE = null;
   drawPanorama();
   renderFrame();   // defined in Task 10
 }
@@ -277,24 +278,56 @@ function worldToBody(pe, pn, ex, ny, yaw) {
   return { x: de * cs + dn * sn, y: -de * sn + dn * cs };  // x fwd, y left
 }
 
-// Body-frame route points to draw this frame. When "remove lateral offset" is
-// on and the algorithm emitted a follow_path, replay it directly (already
-// body-frame, offset removed); otherwise derive the raw slice from the route
-// and the measured pose. `behind`/`ahead` are body-forward metres.
-function bodyRoutePoints(c, f, behind, ahead) {
-  const recenter = document.getElementById("recenter-toggle");
-  if (recenter && recenter.checked && f.follow_path) {
-    return f.follow_path
-      .map(([x, y]) => ({ x, y }))
-      .filter((p) => p.x >= behind && p.x <= ahead);
+// --- live projection (JS twin of the Python algorithm) ---
+let ROUTE_JS = null, ROUTE_JS_CASE = null, CURSOR_MEMO = null, MEMO_UPTO = -1;
+
+function ensureRouteJs(c) {
+  if (ROUTE_JS_CASE === c) return;
+  ROUTE_JS = ProjectRoute.buildRoute(c.route.points_e, c.route.points_n, c.route.s);
+  ROUTE_JS.seg_of_index = null;               // not needed for display
+  ROUTE_JS_CASE = c;
+  CURSOR_MEMO = new Array(c.frames.length).fill(null);
+  MEMO_UPTO = -1;
+}
+
+function currentConfig() {
+  return Object.assign({}, ProjectRoute.DEFAULT_CONFIG, {
+    strategy: document.getElementById("algo-select").value,
+    min_turn_radius_m: parseFloat(document.getElementById("p-radius").value),
+    behind_m: parseFloat(document.getElementById("p-behind").value),
+    ahead_m: parseFloat(document.getElementById("p-ahead").value),
+    corner_angle_deg: parseFloat(document.getElementById("p-corner").value),
+  });
+}
+
+// Advance the monotonic cursor memo up to frameIdx (matching params are fixed,
+// so the cursor does not depend on the live sliders — only the output does).
+function cursorAt(c, frameIdx) {
+  ensureRouteJs(c);
+  const cfg = ProjectRoute.DEFAULT_CONFIG;    // fixed matching params
+  let state = MEMO_UPTO >= 0 ? { cursor_s: CURSOR_MEMO[MEMO_UPTO], initialized: true } : null;
+  for (let i = MEMO_UPTO + 1; i <= frameIdx; i++) {
+    const p = c.frames[i].meas_pose;
+    const m = ProjectRoute.match(ROUTE_JS, p.e, p.n, p.h, cfg, state);
+    CURSOR_MEMO[i] = m.cursor_s;
+    state = { cursor_s: m.cursor_s, initialized: true };
   }
-  const s = c.route.s, e = c.route.points_e, n = c.route.points_n, out = [];
-  const loS = f.cursor_s + behind, hiS = f.cursor_s + ahead;
-  for (let i = 0; i < s.length; i++) {
-    if (s[i] < loS || s[i] > hiS) continue;
-    out.push(worldToBody(f.meas_pose.e, f.meas_pose.n, e[i], n[i], f.meas_pose.h));
-  }
-  return out;
+  if (frameIdx > MEMO_UPTO) MEMO_UPTO = frameIdx;
+  return CURSOR_MEMO[frameIdx];
+}
+
+// Body-frame path for this frame under the live config. Reuses the memoized
+// cursor so slider/selector changes recompute only the output (instant).
+function computeBodyPath(c, frameIdx) {
+  ensureRouteJs(c);
+  const f = c.frames[frameIdx];
+  const cursor = cursorAt(c, frameIdx);
+  const cfg = currentConfig();
+  const state = { cursor_s: cursor, initialized: true };
+  // re-run project_route from the known cursor: pass a state whose cursor equals
+  // this frame's cursor and a pose on that spot so match() returns it unchanged.
+  const out = ProjectRoute.projectRoute(ROUTE_JS, f.meas_pose, cfg, state);
+  return out.path.map(([x, y]) => ({ x, y }));
 }
 
 function drawBev() {
@@ -334,15 +367,15 @@ function drawDriver() {
   const ctx = cv.getContext("2d");
   ctx.clearRect(0, 0, cv.width, cv.height);
   const f = c.frames[STATE.frame];
-  if (f.cursor_s == null) return;
+  if (!f.meas_pose) return;
   if (document.getElementById("persp-toggle").checked) { drawWindshield(ctx, f); return; }
-  const ahead = c.config.ahead, behind = c.config.behind;
-  // body-frame fixed transform: x forward -> up, y left -> left
-  const w = cv.width, h = cv.height, ppm = (h - 20) / (ahead - behind);
-  const toX = (by) => w / 2 - by * ppm;   // +y left -> screen left
-  const toY = (bx) => h - 10 - (bx - behind) * ppm; // +x forward -> up
-  // route slice in the body frame (offset-removed follow_path, or raw)
-  const pts = bodyRoutePoints(c, f, behind, ahead);
+  const behindLive = parseFloat(document.getElementById("p-behind").value);
+  const aheadLive = parseFloat(document.getElementById("p-ahead").value);
+  const w = cv.width, h = cv.height;
+  const ppm = (h - 20) / (aheadLive + behindLive);
+  const toX = (by) => w / 2 - by * ppm;
+  const toY = (bx) => h - 10 - (bx + behindLive) * ppm;
+  const pts = computeBodyPath(c, STATE.frame);
   ctx.strokeStyle = "#2e9e5b"; ctx.lineWidth = 3; ctx.beginPath();
   pts.forEach((b, i) => {
     const x = toX(b.y), y = toY(b.x);
@@ -393,7 +426,7 @@ function drawWindshield(ctx, f) {
   ctx.beginPath(); ctx.moveTo(0, hy); ctx.lineTo(w, hy); ctx.stroke();
 
   // ground grid for depth cue
-  const XMAX = STATE.case.config.ahead;
+  const XMAX = parseFloat(document.getElementById("p-ahead").value);
   ctx.strokeStyle = "#cbd1d9"; ctx.lineWidth = 1;
   for (const Y of [-4, -2, 0, 2, 4]) {                   // longitudinal lines
     let started = false; ctx.beginPath();
@@ -415,7 +448,7 @@ function drawWindshield(ctx, f) {
 
   // route ribbon: edges offset +/- half_width in the body frame
   const HW = PERSP.half_width;
-  const pts = bodyRoutePoints(STATE.case, f, 0, XMAX);
+  const pts = computeBodyPath(STATE.case, STATE.frame).filter(p => p.x >= 0);
   const left = [], right = [], mid = [];
   for (const b of pts) {
     if (b.x <= 0.05) continue;
@@ -523,5 +556,12 @@ window.addEventListener("DOMContentLoaded", () => {
   };
   document.getElementById("speed").onchange = (ev) => { STATE.speed = parseFloat(ev.target.value); };
   document.getElementById("persp-toggle").onchange = () => renderFrame();
-  document.getElementById("recenter-toggle").onchange = () => renderFrame();
+  document.getElementById("algo-select").onchange = () => renderFrame();
+  for (const id of ["p-radius", "p-behind", "p-ahead", "p-corner"]) {
+    document.getElementById(id).oninput = (ev) => {
+      const v = ev.target.value;
+      document.getElementById(id + "-v").textContent = v;
+      renderFrame();
+    };
+  }
 });

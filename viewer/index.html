@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <title>Parking Route Viewer</title>
   <link rel="stylesheet" href="viewer.css">
+  <script src="project_route.js"></script>
 </head>
 <body>
 <div id="app">
@@ -20,8 +21,19 @@
   <main id="center">
     <div class="fig"><h3>BEV (top-down)</h3><canvas id="bev" width="560" height="300"></canvas></div>
     <div class="fig"><h3>Driver view (+x up, +y left)
-      <label><input type="checkbox" id="recenter-toggle" checked> remove lateral offset</label>
-      <label><input type="checkbox" id="persp-toggle"> perspective</label></h3>
+      <label>algo
+        <select id="algo-select">
+          <option value="raw">Raw (keep offset)</option>
+          <option value="centered">Centered (no offset)</option>
+          <option value="smoothed" selected>Smoothed (drivable corners)</option>
+        </select></label>
+      <label><input type="checkbox" id="persp-toggle"> perspective</label>
+      <div id="algo-params">
+        <label>R_min <input type="range" id="p-radius" min="3" max="12" step="0.5" value="5"><span id="p-radius-v">5.0</span> m</label>
+        <label>behind <input type="range" id="p-behind" min="0" max="10" step="1" value="5"><span id="p-behind-v">5</span> m</label>
+        <label>ahead <input type="range" id="p-ahead" min="20" max="100" step="5" value="70"><span id="p-ahead-v">70</span> m</label>
+        <label>corner° <input type="range" id="p-corner" min="5" max="45" step="5" value="10"><span id="p-corner-v">10</span>°</label>
+      </div></h3>
       <canvas id="driver" width="560" height="300"></canvas></div>
     <div id="controls">
       <button id="btn-step-back">◀</button>
