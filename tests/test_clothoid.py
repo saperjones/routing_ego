@@ -23,11 +23,16 @@ def test_turns_by_delta():
 def test_curvature_is_continuous_no_jump():
     delta = math.radians(90)
     pts, _ = clothoid_corner(delta, radius=5.0, transition=3.0, internal_ds=0.1)
-    rates = _turn_rates(pts)
-    # consecutive change in bearing-rate (2nd difference of heading) has no big jump
-    jumps = [abs(rates[i] - rates[i-1]) for i in range(1, len(rates))]
-    # each internal step turns <= ds/R = 0.1/5 = 0.02 rad; step-to-step change is tiny
-    assert max(jumps) < 0.01
+    bearings = _turn_rates(pts)  # per-segment absolute headings
+    # first difference: per-step turn rate (wrapped to (-pi, pi))
+    def wrap(x):
+        return ((x + math.pi) % (2 * math.pi)) - math.pi
+    turn_rate = [wrap(bearings[i] - bearings[i-1]) for i in range(1, len(bearings))]
+    # second difference: change in turn rate between consecutive steps (curvature continuity)
+    jumps = [abs(wrap(turn_rate[i] - turn_rate[i-1])) for i in range(1, len(turn_rate))]
+    # clothoid ramps 0->0.02 rad/step over ~30 steps => per-step change ~7e-4
+    # assert well below ~0.02 (what a hard arc entry would show)
+    assert max(jumps) < 0.005
 
 
 def test_peak_curvature_within_min_radius():
