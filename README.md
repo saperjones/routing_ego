@@ -62,7 +62,9 @@ PORT=9000 ./run.sh  # override the port (default 8000)
     `y = 0`); Smoothed additionally replaces sharp corners with a smooth fillet
     (curvature ≤ 1/R_min on non-degenerate legs).
   - **Corner-style selector** (`#corner-style`; only affects the Smoothed strategy)
-    — `arc` (circular-arc fillet, constant curvature) or `clothoid` (**default**,
+    — `driver-like` (**default**; Gaussian low-pass — starts turning *before* the
+    corner and is C-infinity smooth, mimicking how a human anticipates a turn;
+    the `transition` slider sets how early), `clothoid` (
     Euler spiral with curvature ramping linearly 0→1/R→0, no entry/exit snap).
     The `clothoid_transition_m` default is **4.0 m** for a smooth feel (the
     human ego-track calibration measured 1.5 m; see `docs/clothoid_calibration.md`).

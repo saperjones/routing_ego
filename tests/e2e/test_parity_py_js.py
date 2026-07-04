@@ -58,7 +58,7 @@ def _fixtures():
         }
         for (pe, pn, yaw) in poses:
             for strat in ("raw", "centered", "smoothed"):
-                styles = ("arc", "clothoid") if strat == "smoothed" else ("clothoid",)
+                styles = ("arc", "clothoid", "driver") if strat == "smoothed" else ("clothoid",)
                 for style in styles:
                     cfg = ProjectConfig(strategy=strat, corner_style=style)
                     out = project_route(r, pe, pn, yaw, cfg)

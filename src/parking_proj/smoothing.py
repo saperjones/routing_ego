@@ -62,6 +62,27 @@ def _unit(dx, dy):
     return (0.0, 0.0) if n < 1e-9 else (dx / n, dy / n)
 
 
+def _gaussian_smooth(pts, sigma, ds):
+    """Gaussian low-pass of a polyline (endpoints clamped). sigma in metres;
+    ds is the point spacing. Rounds corners AND shifts the turn earlier."""
+    if sigma <= 1e-9 or len(pts) < 3:
+        return list(pts)
+    r = max(1, int(round(3.0 * sigma / ds)))
+    w = [math.exp(-((k * ds) ** 2) / (2.0 * sigma * sigma)) for k in range(-r, r + 1)]
+    wsum = sum(w)
+    w = [x / wsum for x in w]
+    n = len(pts)
+    out = []
+    for i in range(n):
+        sx = sy = 0.0
+        for idx, k in enumerate(range(-r, r + 1)):
+            j = min(max(i + k, 0), n - 1)          # clamp at ends
+            sx += pts[j][0] * w[idx]
+            sy += pts[j][1] * w[idx]
+        out.append((sx, sy))
+    return out
+
+
 def _arc_world(ax, ay, vx, vy, bx, by, min_radius, delta, cross, ds):
     d1x, d1y = _unit(vx - ax, vy - ay)
     d2x, d2y = _unit(bx - vx, by - vy)
@@ -108,6 +129,12 @@ def smooth_corners(pts, min_radius, corner_angle_deg, ds, eps,
     corner-detection tolerance."""
     if len(pts) < 3:
         return resample(pts, ds)
+    if corner_style == "driver":
+        # "driver-like": Gaussian low-pass of the whole route. Unlike a fillet
+        # (which rounds AT the vertex), this makes the path start bending well
+        # BEFORE the corner and be very smooth — how a human anticipates a turn.
+        # `transition` is the anticipation sigma (m): larger => earlier + smoother.
+        return _gaussian_smooth(resample(pts, ds), transition, ds)
     verts = rdp(pts, eps)
     if len(verts) < 3:
         return resample(verts, ds)

@@ -352,6 +352,7 @@ def test_radius_slider_widens_arc(viewer):
     page.eval_on_selector("#scrubber",
         "el => { el.value = Math.floor(el.max*0.15); el.dispatchEvent(new Event('input')); }")
     page.select_option("#algo-select", "smoothed")
+    page.select_option("#corner-style", "clothoid")   # R_min applies to arc/clothoid, not driver
     page.eval_on_selector("#p-radius", "el => { el.value = 4; el.dispatchEvent(new Event('input')); }")
     page.wait_for_timeout(80)
     sig4 = page.evaluate(_SIGNATURE, "#driver")

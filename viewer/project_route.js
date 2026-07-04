@@ -111,8 +111,29 @@
     return null;  // doesn't fit -> caller uses arc
   }
 
+  function gaussianSmooth(pts, sigma, ds) {
+    if (sigma <= 1e-9 || pts.length < 3) return pts.slice();
+    const r = Math.max(1, Math.round(3.0 * sigma / ds));
+    const w = [];
+    let wsum = 0;
+    for (let k = -r; k <= r; k++) { const v = Math.exp(-((k * ds) ** 2) / (2 * sigma * sigma)); w.push(v); wsum += v; }
+    for (let i = 0; i < w.length; i++) w[i] /= wsum;
+    const n = pts.length, out = [];
+    for (let i = 0; i < n; i++) {
+      let sx = 0, sy = 0;
+      for (let idx = 0, k = -r; k <= r; k++, idx++) {
+        const j = Math.min(Math.max(i + k, 0), n - 1);
+        sx += pts[j][0] * w[idx]; sy += pts[j][1] * w[idx];
+      }
+      out.push([sx, sy]);
+    }
+    return out;
+  }
+
   function smoothCorners(pts, R, angleDeg, ds, eps, cornerStyle, transition) {
     if (pts.length < 3) return resample(pts, ds);
+    if (cornerStyle === "driver")          // Gaussian low-pass: turns earlier + very smooth
+      return gaussianSmooth(resample(pts, ds), transition, ds);
     const verts = rdp(pts, eps);
     if (verts.length < 3) return resample(verts, ds);
     const thresh = angleDeg * Math.PI / 180;
