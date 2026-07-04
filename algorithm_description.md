@@ -384,18 +384,21 @@ The **behind-stub** (samples with `s' < cursor_s`) is never smoothed regardless
 of strategy. The behind-stub reflects where the car actually came from; smoothing
 it would misrepresent history.
 
-### 9.3 Arc-fillet corner smoothing (`smoothing.smooth_corners`)
+### 9.3 Corner smoothing (`smoothing.smooth_corners`)
 
 The forward portion of `"smoothed"` is processed by
-`smooth_corners(pts, min_radius, corner_angle_deg, ds, eps)` in three steps:
+`smooth_corners(pts, min_radius, corner_angle_deg, ds, eps, corner_style, transition)` in three steps:
 
 **Step 1: RDP simplification.** `rdp(pts, eps)` (Ramer-Douglas-Peucker, tolerance
 `simplify_eps_m = 0.20 m` default) reduces the `ds`-spaced polyline to its
-geometric skeleton. This ensures arc fitting operates on real geometric vertices
+geometric skeleton. This ensures corner fitting operates on real geometric vertices
 rather than interpolated midpoints.
 
-**Step 2: Circular-arc fillet.** For each interior RDP vertex `V` with
-predecessor `A` and successor `B`:
+**Step 2: Corner fillet** — shape selected by `corner_style`.
+
+#### 9.3.1 Circular-arc fillet (`corner_style="arc"`)
+
+For each interior RDP vertex `V` with predecessor `A` and successor `B`:
 
 ```
 d1 = unit(V − A),   d2 = unit(B − V)
@@ -420,11 +423,60 @@ with `steps = max(1, ceil(R_eff · δ / ds))` arc points.
 
 **Curvature guarantee.** When neither half-leg clamp is active,
 `T = R_min · tan(δ/2)` and `R_eff = R_min`, so `κ = 1/R_eff = 1/R_min`.
-The curvature on all non-degenerate arcs satisfies `κ ≤ 1/min_turn_radius_m`,
-making the smoothed forward path drivable at the configured minimum turning
-radius. Degenerate case: if a leg is shorter than `2 · R_min · tan(δ/2)`,
-the half-leg clamp reduces `R_eff` below `R_min` — curvature may exceed the
-limit for that arc only.
+Curvature on all non-degenerate arcs satisfies `κ ≤ 1/min_turn_radius_m`.
+Degenerate case: if a leg is shorter than `2 · R_min · tan(δ/2)`, the
+half-leg clamp reduces `R_eff` below `R_min`.
+
+Note: the circular arc has a **curvature discontinuity** at the tangent points
+`p1` and `p2` — curvature jumps from 0 (straight) to `1/R` (arc) in one step.
+
+#### 9.3.2 Clothoid (Euler spiral) corner (`corner_style="clothoid"`, default)
+
+A clothoid is a curve whose curvature is **linear in arc length**, giving a
+jerk-continuous (C2) path. Curvature profile for one corner:
+
+```
+κ(s) = s / (R · L_t)                                  s ∈ [0, L_t]          (entry spiral)
+κ(s) = 1/R                                             s ∈ [L_t, L_t+L_a]   (arc, if any)
+κ(s) = (2L_t + L_a − s) / (R · L_t)                   s ∈ [L_t+L_a, 2L_t+L_a]  (exit spiral)
+```
+
+where `L_t = clothoid_transition_m` (one-sided transition length, default 1.5 m,
+data-calibrated — see `docs/clothoid_calibration.md`) and `L_a ≥ 0`.
+
+The half-turn angle of one spiral:
+
+```
+θ_sp = L_t / (2R)
+```
+
+The total turn angle is `δ = 2θ_sp + L_a/R`. Given `δ` and `R`, the arc length
+is `L_a = max(0, R·δ − 2·θ_sp·R) = max(0, R·δ − L_t)`.
+
+The tangent length (from vertex to the spiral entry/exit point) is the same as
+the arc: `T = R · tan(δ/2)`. The local clothoid coordinates are computed by
+integrating the Fresnel-like integrals:
+
+```
+x(s) = ∫₀ˢ cos(κ(t)·t/2) dt,   y(s) = ∫₀ˢ sin(κ(t)·t/2) dt
+```
+
+numerically (Simpson's rule in JS, `scipy.integrate.quad` in Python). The
+resulting local polyline is rotated and translated to fit the world frame using
+the entry tangent direction at `p1 = V − T · d1`.
+
+**Fit procedure.** The clothoid is attempted at transition factors 1.0, 0.5, 0.25
+(`L_t = factor · clothoid_transition_m`). The attempt succeeds when
+`T ≤ 0.45 · min(l₁, l₂)`. If no factor succeeds, the corner falls back to a
+circular-arc fillet (§9.3.1).
+
+**Curvature continuity.** The clothoid begins and ends at κ = 0 (tangent to the
+straight legs). There is no curvature jump at entry or exit. Peak curvature is
+`1/R = 1/min_turn_radius_m`, the same bound as the arc.
+
+**Calibrated default.** The `clothoid_transition_m = 1.5 m` was measured from
+real ego tracks: the median entry-ramp length (arc length from straight to peak
+curvature) across resolved turns in seven human-driven parking datasets.
 
 **Step 3: Uniform resample.** `resample(out, ds)` restores `ds`-spaced sampling
 so the consumer always receives a uniform step.
@@ -445,16 +497,19 @@ behind-stub (unsmoothed); points with `s ≥ cursor_s` form the forward portion
 
 `est_lat_dev`, `cursor_s`, and `matched_seg` are computed by the matching step
 before path construction and are independent of the chosen strategy. Changing
-`strategy` or any path parameter never affects the matching decisions.
+`strategy`, `corner_style`, or any path parameter never affects the matching
+decisions.
 
 ### 9.6 JavaScript twin
 
 `viewer/project_route.js` is a DOM-free port exposed as `window.ProjectRoute`.
 It implements the same matching (`bestInRange`, `match`), body-frame rotation
-(`toBody`), and smoothing (`rdp`, `smoothCorners`, `resample`) as the Python
-reference. The heading-gate angular difference uses a true-modulo helper to match
-Python/numpy `%` semantics. Parity is enforced by `tests/e2e/test_parity_py_js.py`
-(30 cases: 2 routes × 5 poses × 3 strategies; tolerance 1e-3 m per point).
+(`toBody`), clothoid integral (`clothoidCorner`), and smoothing
+(`rdp`, `smoothCorners`, `resample`) as the Python reference. The heading-gate
+angular difference uses a true-modulo helper to match Python/numpy `%` semantics.
+Parity is enforced by `tests/e2e/test_parity_py_js.py`
+(40 cases: 2 routes × 5 poses × 4 strategy/corner-style combos; tolerance 1e-3 m
+per point).
 
 ---
 
@@ -468,9 +523,10 @@ Python/numpy `%` semantics. Parity is enforced by `tests/e2e/test_parity_py_js.p
   (§5.4); no frame is dropped (§5.2).
 - **Reproducibility** — a single seeded generator drives all noise (§7), so
   regenerating any case is bit-identical.
-- **Drivable arcs** — for non-degenerate legs, the `"smoothed"` strategy
-  produces a forward path with curvature `κ ≤ 1/min_turn_radius_m` on all
-  arcs and `κ = 0` on straights (§9.3).
+- **Drivable corners** — for non-degenerate legs, the `"smoothed"` strategy
+  produces a forward path with peak curvature `κ ≤ 1/min_turn_radius_m` (§9.3).
+  With `corner_style="clothoid"` (default), the path is additionally
+  curvature-continuous (no entry/exit snap).
 - **Python↔JS parity** — `viewer/project_route.js` produces numerically
-  identical output to `project_route.py` (tolerance 1e-3 m) for all three
-  strategies, verified by `tests/e2e/test_parity_py_js.py`.
+  identical output to `project_route.py` (tolerance 1e-3 m) for all
+  strategy/corner-style combinations, verified by `tests/e2e/test_parity_py_js.py`.

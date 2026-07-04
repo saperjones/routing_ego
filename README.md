@@ -57,11 +57,20 @@ PORT=9000 ./run.sh  # override the port (default 8000)
   - **Algorithm selector** — `Raw (keep offset)` / `Centered (no offset)` /
     `Smoothed (drivable corners)` — maps to `ProjectConfig.strategy`. Raw keeps
     the lateral cross-track offset visible; Centered removes it (anchor at
-    `y = 0`); Smoothed additionally replaces sharp corners with circular-arc
-    fillets (curvature ≤ 1/R_min on non-degenerate legs).
+    `y = 0`); Smoothed additionally replaces sharp corners with a smooth fillet
+    (curvature ≤ 1/R_min on non-degenerate legs).
+  - **Corner-style selector** (`#corner-style`, visible when Smoothed is active)
+    — `arc` (circular-arc fillet, constant curvature) or `clothoid` (**default**,
+    Euler spiral with curvature ramping linearly 0→1/R→0, no entry/exit snap).
+    The `clothoid_transition_m = 1.5 m` transition length was calibrated from
+    human-driven ego tracks in parking lots (see `docs/clothoid_calibration.md`).
+  - **Transition slider** (`#p-transition`, 0.5–8 m) — controls the clothoid
+    spiral length; shorter gives a tighter entry ramp, longer gives a more gradual
+    curvature build-up. Falls back to an arc for corners where the legs are too
+    short to fit the full transition.
   - **Parameter sliders** — `R_min` (3–12 m), `behind` (0–10 m), `ahead`
     (20–100 m), `corner°` (5–45°) — update `ProjectConfig` fields live. Wider
-    radius means gentler arcs; all changes are instant, no reload.
+    radius means gentler corners; all changes are instant, no reload.
 - **Bottom — playback:** step ◀ ▶, play/pause, scrubber, speed (0.5×/1×/2×).
 - **Right — telemetry:** heading, speed, position, estimated & true lateral
   deviation, progress, matched segment, frame index, and the case verdict.
@@ -98,16 +107,21 @@ frame the function:
 4. **Returns** `ProjectOutput`: `path` (`[[x,y],…]` body frame), `cursor_s`,
    `lat_dev`, `matched_seg`, `end_flag`, and the next `state`.
 
-**Smoothed corners — arc-fillet math.** The forward portion of the `"smoothed"`
+**Smoothed corners — arc or clothoid.** The forward portion of the `"smoothed"`
 path is processed by `smooth_corners` in `smoothing.py`:
 
 1. **RDP simplification** (tolerance `simplify_eps_m`, default 0.20 m) detects
    the real geometric vertices.
-2. **Circular-arc fillet** — for each vertex with unsigned turn angle `δ`, the
-   tangent length is `T = min(R_min · tan(δ/2), half each adjacent leg)` and
-   the effective radius is `R_eff = T / tan(δ/2)`. For non-degenerate legs
-   (length > `2 · R_min · tan(δ/2)`), curvature `κ ≤ 1/R_min`. The behind-stub
-   is never smoothed.
+2. **Corner fillet** (shape set by `corner_style`, default `"clothoid"`):
+   - `"arc"` — circular-arc fillet: tangent length `T = min(R_min · tan(δ/2), half each leg)`,
+     effective radius `R_eff = T / tan(δ/2)`. Curvature jumps from 0 to `1/R` at
+     the tangent point.
+   - `"clothoid"` — Euler spiral with linear curvature ramp 0→1/R over
+     `clothoid_transition_m` (default 1.5 m, data-calibrated), an optional
+     constant-curvature arc, then 1/R→0. No curvature discontinuity at entry or
+     exit. Falls back to an arc for tight corners where the legs are too short.
+   For non-degenerate legs, peak curvature `κ ≤ 1/R_min`. The behind-stub is
+   never smoothed.
 3. **Uniform resample** at `sample_ds_m` restores even spacing.
 
 The JS twin (`viewer/project_route.js`, `window.ProjectRoute`) implements the
@@ -194,11 +208,19 @@ The e2e suite serves the repo root, drives the viewer in headless Chromium, and
 asserts the canvases render with meaningful coverage (the route spans the
 canvas, not just a stray pixel), telemetry populates, playback steps, the
 scrubber seeks, the BEV layer rebuilds on case switch, and **no JS errors**
-occur. It also includes `test_parity_py_js.py`, which runs 30 cases (2 routes ×
-5 poses × 3 strategies) through both the Python `project_route` function and the
-JS twin (`window.ProjectRoute`) and asserts path coordinates, `matched_seg`, and
-`end_flag` all agree to within 1e-3 m. It's excluded from the default `pytest`
-run via the `e2e` marker.
+occur. It also includes:
+- `test_parity_py_js.py`: runs 40 cases (2 routes × 5 poses × 4 strategy/corner-style
+  combos) through both the Python `project_route` function and the JS twin
+  (`window.ProjectRoute`) and asserts path coordinates, `matched_seg`, and `end_flag`
+  all agree to within 1e-3 m.
+- `test_clothoid_smoother_than_arc`: measures the curvature-jump metric (second
+  difference of heading angle along the path) and asserts the clothoid's value is
+  meaningfully smaller than the arc's, proving curvature continuity is visible in
+  the rendered path.
+- `test_transition_slider_changes_path`: asserts the driver-view canvas signature
+  changes when the transition-length slider is moved.
+
+All e2e tests are excluded from the default `pytest` run via the `e2e` marker.
 
 ---
 

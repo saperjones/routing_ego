@@ -71,6 +71,8 @@ class ProjectConfig:
     min_turn_radius_m: float = 5.0   # arc-fillet minimum radius (m); "smoothed" only
     corner_angle_deg: float = 10.0   # minimum corner angle to fillet (degrees); "smoothed" only
     simplify_eps_m: float = 0.20     # RDP simplification tolerance (m); "smoothed" only
+    corner_style: str = "clothoid"   # "arc" | "clothoid"; "smoothed" only
+    clothoid_transition_m: float = 1.5  # clothoid spiral transition length (m); "smoothed"+"clothoid" only
 ```
 
 `SEARCH_AHEAD = 15.0` is the module-level default, matched by `search_ahead_m`.
@@ -145,7 +147,7 @@ This re-anchors the path so the matched route point sits on the `y = 0` (forward
 axis, removing the translational offset while preserving heading error and
 curvature. The behind-stub and the forward portion are both shifted.
 
-### 4.3 `"smoothed"` — Remove offset + arc-fillet corner smoothing
+### 4.3 `"smoothed"` — Remove offset + corner smoothing
 
 Same lateral shift as `"centered"`, then the **forward portion** (`fwd_pts`, i.e.
 points at `s ≥ cursor_s`) is passed through `smooth_corners` if it contains at
@@ -154,24 +156,39 @@ least 3 points:
 ```python
 if cfg.strategy == "smoothed" and len(fwd_pts) >= 3:
     fwd_pts = smooth_corners(fwd_pts, cfg.min_turn_radius_m, cfg.corner_angle_deg,
-                             cfg.sample_ds_m, cfg.simplify_eps_m)
+                             cfg.sample_ds_m, cfg.simplify_eps_m,
+                             corner_style=cfg.corner_style,
+                             transition=cfg.clothoid_transition_m)
 ```
+
+The corner shape is selected by `corner_style`:
+
+- `"arc"` (circular-arc fillet) — constant curvature `1/R`; curvature jumps
+  discontinuously at the entry tangent point.
+- `"clothoid"` (**default**) — curvature-continuous Euler spiral (clothoid); curvature
+  ramps linearly from 0 to `1/R` over `clothoid_transition_m` metres, holds at
+  `1/R` through any remaining constant-curvature arc, then ramps back to 0. The
+  `clothoid_transition_m = 1.5 m` default was calibrated from real human-driven
+  ego tracks (see `docs/clothoid_calibration.md`). The clothoid falls back to an
+  arc when the adjacent legs are too short to accommodate the full transition.
 
 The behind-stub is **not** smoothed — it reflects where the car actually came
 from. Only the actionable look-ahead is smoothed into a drivable path.
 
 ---
 
-## 5. Arc-Fillet Corner Smoothing (`smoothing.py`)
+## 5. Corner Smoothing (`smoothing.py`)
 
 ### 5.1 Pipeline
 
-`smooth_corners(pts, min_radius, corner_angle_deg, ds, eps)` applies three steps:
+`smooth_corners(pts, min_radius, corner_angle_deg, ds, eps, corner_style="arc", transition=3.0)` applies three steps:
 
 1. **RDP simplification** (`rdp(pts, eps)`) — reduces the densely sampled
    polyline to its geometric skeleton, so that arc fitting operates on real
    vertices rather than interpolated midpoints.
-2. **Circular-arc fillet** — replaces each sharp vertex with a tangent arc.
+2. **Corner fillet** — replaces each sharp vertex with either a circular-arc
+   fillet (`corner_style="arc"`) or a clothoid (Euler spiral) transition
+   (`corner_style="clothoid"`). See §5.3 and §5.5.
 3. **Uniform resample** (`resample(out, ds)`) — restores the `ds`-spaced
    sampling so the consumer always gets a uniform step.
 
@@ -265,14 +282,50 @@ turning radius of `R_min = min_turn_radius_m` (default 5.0 m).
 
 Straight segments between arcs have `κ = 0`.
 
-### 5.5 "Revert to Straight After the Turn" Per-Frame Behavior
+### 5.5 Clothoid (Euler Spiral) Corner — `corner_style="clothoid"`
+
+The default corner style is `"clothoid"`. A clothoid (Euler spiral) is a curve
+whose curvature varies **linearly with arc length**, giving a jerk-continuous (C2)
+path that matches natural human steering behaviour. The curvature profile for one
+corner is:
+
+```
+κ(s) = s / (R · L_t)           for s ∈ [0, L_t]       (entry spiral, curvature ramps up)
+κ(s) = 1 / R                   for s ∈ [L_t, L_t+L_a]  (optional constant-curvature arc)
+κ(s) = (L_t+L_a + L_t − s) / (R · L_t)  for s ∈ [L_t+L_a, 2L_t+L_a]  (exit spiral)
+```
+
+where `L_t = clothoid_transition_m` is the spiral length (one side) and `L_a ≥ 0`
+is any remaining constant-curvature arc. The turn angle of one spiral is
+`θ_sp = L_t / (2R)`.
+
+The `clothoid_transition_m = 1.5 m` default was determined by measuring the
+**entry ramp length** of real vehicle cornering from human-driven ego tracks: for
+each detected turn (κ > 1/15 m⁻¹), the arc length from the straight to the peak
+curvature was measured and the median taken across all resolved turns. See
+`docs/clothoid_calibration.md` for the full calibration table. The value is 1.5 m
+at the median across seven datasets.
+
+**Fit procedure.** For a corner with signed turn angle `δ` and legs of length
+`l₁`, `l₂`, the clothoid is attempted at transition factors 1.0, 0.5, 0.25
+(`L_t = factor · clothoid_transition_m`). The attempt succeeds when the tangent
+length `T = R · tan(δ/2)` satisfies `T ≤ 0.45 · min(l₁, l₂)` (leaves 10% margin
+beyond the half-leg clamp). If no factor succeeds, the corner falls back to a
+circular-arc fillet (§5.3).
+
+**Curvature continuity.** The clothoid entry begins at κ = 0 (straight) and ramps
+to `κ = 1/R`; the exit ramps back to 0. There is no curvature jump at the entry or
+exit tangent points. The peak curvature is `1/R = 1/min_turn_radius_m`, the same
+bound as the arc.
+
+### 5.6 "Revert to Straight After the Turn" Per-Frame Behavior
 
 Because matching is re-run each frame and the forward window advances with the
-car, the arc is **not frozen**: once the car moves past a corner, the next frame's
-`fwd_pts` begins past that corner's tangent point. The arc simply stops appearing
-in the output — the path reverts to a straight (or next-arc) segment naturally
-without any explicit state machine. This is a consequence of the pure-function
-design: no corner memory, no hysteresis.
+car, the corner shape is **not frozen**: once the car moves past a corner, the
+next frame's `fwd_pts` begins past that corner's tangent point. The smoothed
+corner stops appearing in the output — the path reverts to a straight (or
+next-corner) segment naturally without any explicit state machine. This is a
+consequence of the pure-function design: no corner memory, no hysteresis.
 
 ---
 
@@ -284,21 +337,13 @@ The function is designed for an embedded target running at 10 Hz:
 |----------|-----------|
 | **Windowed search** | Match scans at most `(search_ahead_m + search_back_m) / route_density` points (≈ 153 points at default 0.1 m route density) — O(W/Δs), not O(L). |
 | **Closed-form arcs** | No iterative convergence. `T`, `R_eff`, `C`, and arc points are all direct algebraic evaluations. |
+| **Clothoid integration** | The clothoid spiral is computed by numeric integration (`scipy.integrate.quad` in Python, Simpson's rule in JS) at fine internal steps; output is resampled at `ds`. |
 | **No convergence loops** | RDP is O(N log N) in typical cases; arc fitting is O(V) where V = number of RDP vertices (typically small: 2–10 per 70 m segment). |
 | **Deterministic timing** | The matching window has a fixed upper bound; the only variable-cost step is RDP whose depth is bounded by the polyline vertex count. |
 
 ---
 
-## 7. Clothoid-Ready Extension Point
-
-The arc-fillet step in `smooth_corners` (step 2 of the pipeline) currently
-produces circular arcs (constant curvature). A clothoid (Euler spiral) transition
-would replace the constant-κ arc with a curvature ramp from 0 to `1/R` and back,
-giving a jerk-continuous path. The extension point is the arc-construction block
-in `smooth_corners` (lines 104–114 in `smoothing.py`): replace the constant-radius
-sweep with a clothoid parameterization at the same `T`, `R_eff`, `C`, and `sign`,
-keeping the same `p1` entry point and the same sweep angle `δ`. The rest of the
-pipeline (RDP, resample, lateral shift) is unchanged.
+## 7. JavaScript Twin — `viewer/project_route.js`
 
 A future `strategy = "clothoid"` or a `corner_curve` parameter in `ProjectConfig`
 could select between arc and clothoid without touching the matching logic.
@@ -314,7 +359,8 @@ ProjectRoute.DEFAULT_CONFIG       // mirrors ProjectConfig defaults exactly
 ProjectRoute.projectRoute(route, pose, cfg, state)   // main entry (pose = {e, n, h})
 ProjectRoute.match(route, pe, pn, yaw, cfg, state)
 ProjectRoute.rdp(pts, eps)
-ProjectRoute.smoothCorners(pts, R, angleDeg, ds, eps)
+ProjectRoute.smoothCorners(pts, R, angleDeg, ds, eps, cornerStyle, transition)
+ProjectRoute.clothoidCorner(delta, radius, transition, internalDs)
 ProjectRoute.resample(pts, ds)
 ProjectRoute.toBody(de, dn, yaw)
 ProjectRoute.indexAtS(route, s)
@@ -323,10 +369,15 @@ ProjectRoute.bestInRange(route, pe, pn, yaw, loS, hiS, gate)
 ProjectRoute.buildRoute(points_e, points_n, s_opt, waypoint_indices_opt)
 ```
 
+`DEFAULT_CONFIG` includes `corner_style: "clothoid"` and
+`clothoid_transition_m: 1.5`, mirroring `ProjectConfig` defaults.
+
 The JS twin uses a true-modulo helper `mod(a, m) = ((a % m) + m) % m` to match
 Python/numpy's `%` behaviour in the heading-gate angular difference computation.
+The clothoid integral is computed by Simpson's rule in JS (matching
+`scipy.integrate.quad` in Python).
 
-**Parity guarantee:** `tests/e2e/test_parity_py_js.py` runs 30 cases (2 routes ×
-5 poses × 3 strategies) through both Python and the JS twin in a headless
-Chromium browser, asserting path length, per-point coordinates (tolerance 1e-3 m),
-`matched_seg`, and `end_flag` all agree.
+**Parity guarantee:** `tests/e2e/test_parity_py_js.py` runs 40 cases (2 routes ×
+5 poses × 4 strategy/corner-style combos) through both Python and the JS twin in
+a headless Chromium browser, asserting path length, per-point coordinates
+(tolerance 1e-3 m), `matched_seg`, and `end_flag` all agree.

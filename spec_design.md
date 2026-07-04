@@ -48,7 +48,7 @@ The system is **two clean halves that meet at a JSON file:**
 |----------|--------|-----------------|
 | `"raw"` | as-is (shows lateral offset) | none |
 | `"centered"` | removed (anchor at `y = 0`) | none |
-| `"smoothed"` | removed | circular-arc fillet (radius ≥ `min_turn_radius_m`) |
+| `"smoothed"` | removed | corner fillet: `corner_style="clothoid"` (default, Euler spiral, curvature-continuous) or `corner_style="arc"` (circular arc); radius ≥ `min_turn_radius_m` |
 
 **Alternatives rejected:**
 - Stateless global nearest-point search — genuinely ambiguous at self-crossings (the exact failure this project targets).
@@ -231,11 +231,13 @@ See `docs/project_route_function.md` for the full math derivation.
 - **BEV (center-top):** the planned route (light) plus the accumulated driven trajectory (bold) plus an oriented car marker at the true pose. It uses a fixed transform and is drawn north-up.
 - **Driver-view (center-bottom):** the body-frame path computed live by `ProjectRoute.projectRoute` — car at the origin, `+x` up (forward), `+y` left. Ticking the **perspective** checkbox switches the panel into a **windshield 3D view**: the route is projected through a forward-looking pinhole camera onto the road plane ahead, drawn with a sky and horizon line, a perspective ground grid for depth, and the trajectory as a ribbon that is wide near the car and **narrows toward the vanishing point** on the horizon (with a dashed centerline). The driver's position is anchored at bottom-center by a **hood band, a forward center line, and an ego arrow**. The default camera is ~1.4 m high, pitched down ~10°, ~70° horizontal field of view, principal point centered; these plus the ribbon half-width are exposed as `PERSP` constants in `viewer.js`.
 - **Algorithm selector (`#algo-select`):** `Raw (keep offset)` / `Centered (no offset)` / `Smoothed (drivable corners)` — maps directly to `ProjectConfig.strategy`. Changing it re-renders the current frame instantly (no reload).
-- **Parameter sliders:** four range inputs update `ProjectConfig` fields live:
+- **Corner-style selector (`#corner-style`):** `arc` (circular-arc fillet) or `clothoid` (**default**, Euler spiral with linear curvature ramp); visible when `Smoothed` is active. Maps to `ProjectConfig.corner_style`.
+- **Parameter sliders:** six range inputs update `ProjectConfig` fields live:
   - `#p-radius` (`R_min`, 3–12 m, step 0.5) → `min_turn_radius_m`
   - `#p-behind` (behind, 0–10 m, step 1) → `behind_m`
   - `#p-ahead` (ahead, 20–100 m, step 5) → `ahead_m`
   - `#p-corner` (corner°, 5–45°, step 5) → `corner_angle_deg`
+  - `#p-transition` (transition, 0.5–8 m, step 0.5) → `clothoid_transition_m`; active with `clothoid` corner style
 - **Live compute architecture:** the monotonic cursor (`cursor_s`) is memoized frame-by-frame at the default matching parameters. Changing a slider or the algo selector recomputes only the body-frame path from the already-known cursor — the match does not re-run. This makes slider interaction instant even on long cases.
 - **Controls:** play/pause, step ±1, scrubber, speed ×0.5/×1/×2. Selecting a case loads its JSON and resets to frame 0.
 - **Anti-flicker:** each figure is a `<canvas>` with a **fixed world→screen transform** computed once from the route bounds (so there is no mid-play pan or zoom). The static layer (route, panorama) is drawn once onto an offscreen canvas and then copied in ("blitted"); only the car marker and the slice are redrawn each frame, via `requestAnimationFrame` throttled to 10 Hz.
@@ -301,6 +303,8 @@ See `docs/project_route_function.md` for the full math derivation.
 | V5 | tick the perspective checkbox | driver-view switches to the windshield 3D view (sky/horizon/grid + tapering route ribbon); no JS errors; unticking returns to the top-down slice |
 | V6 | switch algo selector (`#algo-select`) between raw / centered / smoothed | driver-view path updates instantly; smoothed corners are visually rounded vs. raw/centered; no JS errors |
 | V7 | adjust parameter sliders (`#p-radius`, `#p-behind`, `#p-ahead`, `#p-corner`) | driver-view updates instantly; wider radius → gentler arcs; wider ahead → longer path; no reload required |
+| V8 | switch corner-style selector (`#corner-style`) between arc and clothoid | driver-view path changes (clothoid has a smoother curvature-jump profile than arc); `test_clothoid_smoother_than_arc` verifies this with a curvature-jump metric |
+| V9 | adjust transition slider (`#p-transition`) with clothoid active | driver-view canvas signature changes; longer transition → more gradual curvature build-up; `test_transition_slider_changes_path` verifies |
 
 ### 5.5 Test-case matrix (14 cases)
 

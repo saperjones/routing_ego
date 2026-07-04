@@ -367,3 +367,65 @@ def test_tab_switch_to_simulation_works(viewer):
     page.wait_for_selector("#case-list li.group-header")   # sim list has group headers
     assert page.locator("#case-list .badge.pass").count() >= 1
     page.click("#tab-real")                                 # back to real
+
+
+def test_clothoid_smoother_than_arc(viewer):
+    """Clothoid corner has lower curvature-jump (second difference of heading) than arc.
+
+    The arc's entry has a sudden snap from 0 curvature to 1/R; the clothoid ramps
+    linearly so consecutive per-step turn-rate changes are much smaller. We measure
+    the maximum |Δ(per-step turn rate)| — the curvature-jump metric — on the forward
+    path at a frame where the near-90° corner is in the look-ahead window.
+
+    Verified fact: at the default R=5 m, clothoid_transition_m=1.5, on the
+    "Near-90 corner (low)" case at ~15% into the run, clothoid ≈ 0.033 vs arc ≈ 0.051.
+    """
+    page, _ = viewer
+    _select(page, "Near-90 corner (low)")
+    # Reset radius to default 5 m so the clothoid's entry ramp dominates over the arc
+    # snap regardless of what prior tests set it to.
+    page.eval_on_selector("#p-radius",
+        "el => { el.value = 5; el.dispatchEvent(new Event('input')); }")
+    page.eval_on_selector("#scrubber",
+        "el => { el.value = Math.floor(el.max*0.15); el.dispatchEvent(new Event('input')); }")
+
+    def curvature_jump(style):
+        page.select_option("#corner-style", style)
+        page.wait_for_timeout(80)
+        return page.evaluate("""() => {
+          const p = computeBodyPath(STATE.case, STATE.frame).filter(q => q.x >= 0);
+          const r = [];
+          for (let i = 1; i < p.length; i++)
+            r.push(Math.atan2(p[i].y - p[i-1].y, p[i].x - p[i-1].x));
+          const w = a => (a + Math.PI) % (2 * Math.PI) - Math.PI;
+          const tr = [];
+          for (let i = 1; i < r.length; i++) tr.push(w(r[i] - r[i-1]));
+          let m = 0;
+          for (let i = 1; i < tr.length; i++)
+            m = Math.max(m, Math.abs(tr[i] - tr[i-1]));
+          return m;
+        }""")
+
+    page.select_option("#algo-select", "smoothed")
+    arc = curvature_jump("arc")
+    clo = curvature_jump("clothoid")
+    assert clo < arc * 0.9, (clo, arc)   # clothoid curvature-jump meaningfully smaller
+
+
+def test_transition_slider_changes_path(viewer):
+    page, _ = viewer
+    _select(page, "Near-90 corner (low)")
+    page.eval_on_selector("#scrubber",
+        "el => { el.value = Math.floor(el.max*0.15); el.dispatchEvent(new Event('input')); }")
+    page.select_option("#algo-select", "smoothed")
+    page.select_option("#corner-style", "clothoid")
+    # Reset radius to default 5 m so the clothoid engages the corner with room to vary
+    page.eval_on_selector("#p-radius",
+        "el => { el.value = 5; el.dispatchEvent(new Event('input')); }")
+    page.eval_on_selector("#p-transition", "el => { el.value = 1; el.dispatchEvent(new Event('input')); }")
+    page.wait_for_timeout(80)
+    s1 = page.evaluate(_SIGNATURE, "#driver")
+    page.eval_on_selector("#p-transition", "el => { el.value = 6; el.dispatchEvent(new Event('input')); }")
+    page.wait_for_timeout(80)
+    s6 = page.evaluate(_SIGNATURE, "#driver")
+    assert s1 != s6, "transition length must change the clothoid path"
