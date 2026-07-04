@@ -66,7 +66,10 @@ def smooth_corners(pts, min_radius, corner_angle_deg, ds, eps):
 
     Returns a new polyline resampled at ds with curvature <= 1/min_radius on
     arcs and 0 on straights. corner_angle_deg: only fillet turns sharper than
-    this. eps: RDP tolerance for corner-vertex detection.
+    this. eps: RDP tolerance for corner-vertex detection. When an adjacent leg
+    is shorter than the tangent length required for min_radius, the tangent
+    length is clamped to half the leg, so the effective radius is reduced to
+    fit — curvature may exceed 1/min_radius only in that degenerate case.
     """
     if len(pts) < 3:
         return resample(pts, ds)

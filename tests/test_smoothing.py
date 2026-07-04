@@ -41,3 +41,25 @@ def test_smooth_corners_keeps_straight_line_straight():
     line = [(0.0, y) for y in np.arange(0.0, 10.01, 0.1)]
     out = smooth_corners(line, min_radius=5.0, corner_angle_deg=10.0, ds=0.5, eps=0.2)
     assert _max_heading_step(out) < 1e-6
+
+
+def _z_shape(step=0.1):
+    """Z/S polyline: (0,0)->(0,10)->(10,10)->(10,20) — two ~90 degree corners with 10 m legs."""
+    up1 = [(0.0, round(y, 3)) for y in np.arange(0.0, 10.0 + step / 2, step)]
+    right = [(round(x, 3), 10.0) for x in np.arange(step, 10.0 + step / 2, step)]
+    up2 = [(10.0, round(y, 3)) for y in np.arange(10.0 + step, 20.0 + step / 2, step)]
+    return up1 + right + up2
+
+
+def test_smooth_corners_two_consecutive_corners():
+    """Regression: the straight middle leg between two filleted corners must be preserved."""
+    R, ds = 5.0, 0.5
+    out = smooth_corners(_z_shape(), min_radius=R, corner_angle_deg=10.0, ds=ds, eps=0.2)
+
+    # Both corners bounded: max heading change per step <= ds/R + tolerance
+    assert _max_heading_step(out) <= ds / R + 0.05
+
+    # Middle leg present: some sample near x=0 (exit of corner 1) and near x=10 (entry of corner 2)
+    xs = [p[0] for p in out]
+    assert any(abs(x) < 0.1 for x in xs), "straight middle leg missing near x=0 (chorded across)"
+    assert any(abs(x - 10.0) < 0.1 for x in xs), "straight middle leg missing near x=10 (chorded across)"
