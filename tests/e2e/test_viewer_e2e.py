@@ -305,6 +305,11 @@ def test_real_case_renders_bev_and_drives(viewer):
 def test_algo_selector_switches_driver_view(viewer):
     page, _ = viewer
     _select(page, "X-crossing (high)")
+    page.eval_on_selector(
+        "#scrubber",
+        "el => { el.value = Math.floor(el.max * 0.5); el.dispatchEvent(new Event('input')); }",
+    )
+    page.wait_for_timeout(80)
     page.select_option("#algo-select", "centered")
     page.wait_for_timeout(80)
     sig_c = page.evaluate(_SIGNATURE, "#driver")
