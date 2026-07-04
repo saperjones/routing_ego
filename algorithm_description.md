@@ -344,78 +344,117 @@ All 14 test cases pass with 0 mismatches, 0 backward jumps, and 0 dropouts.
 
 ---
 
-## 9. Follow-path output — lateral-offset removal (`projection.follow_path`)
+## 9. Portable function and output strategies (`project_route.py`)
 
-The stateful projector exposes one additional output per frame beyond the telemetry in §5.4: a **re-anchored body-frame path** (`follow_path`) with the cross-track offset subtracted, plus the scalar shift (`lat_shift`).
+The function `project_route(route, pose_e, pose_n, yaw, config, state=None, speed=None) → ProjectOutput`
+wraps the matching logic of §5 and builds the body-frame output path in a single
+pure call. The caller holds `ProjectState(cursor_s, initialized)` between frames;
+the function never mutates it. Three output strategies are selectable via
+`ProjectConfig.strategy`.
 
-### 9.1 Motivation
+### 9.1 Lateral shift (common to `"centered"` and `"smoothed"`)
 
-The raw body-frame route slice places the matched route point at the car's current lateral offset from the route. Under high RTK error (up to 2 m) this offset is large and visually distracts from the heading error and curvature that a path-following controller actually cares about. `follow_path` removes the translational offset while preserving all angular information (heading error, curvature, look-ahead geometry).
-
-### 9.2 Constants
-
-```
-FOLLOW_AHEAD = 70.0   # m, forward look-ahead window
-FOLLOW_DS    = 0.5    # m, sampling step
-```
-
-Both are exported to the per-case JSON `config` object as `follow_ahead` and `follow_ds`.
-
-### 9.3 Math
-
-**Anchor.** Let `P = route.point_at_s(cursor_s)` be the route point at the current cursor, and let `(pose_e, pose_n, yaw)` be the measured pose.
-
-Compute the body-frame representation of `P` relative to the pose using the §4 rotation:
+Let `P = route.point_at_s(cursor_s)`. Compute the body-`y` of the anchor
+relative to the measured pose using the §4 rotation:
 
 ```
-(d_e, d_n) = (P_e − pose_e, P_n − pose_n)
-lat_shift   = −d_e · sin(yaw) + d_n · cos(yaw)      (body-y of the anchor)
+(_, lat_shift) = to_body_frame(P_e − pose_e, P_n − pose_n, yaw)
+lat_shift = −(P_e − pose_e)·sin(yaw) + (P_n − pose_n)·cos(yaw)
 ```
 
-This is `to_body_frame(P − pose, yaw).y`.
-
-**Sampling window.** `s'` ranges over:
+For every sampled point `Q = route.point_at_s(s')` the raw body coordinates are:
 
 ```
-s' ∈ { cursor_s + k · FOLLOW_DS  :  k = 0, 1, 2, … }
-subject to  s' ≤ min(cursor_s + FOLLOW_AHEAD, route.length)
+(bx, by) = to_body_frame(Q_e − pose_e, Q_n − pose_n, yaw)
 ```
 
-Forward-only: no behind-stub. Truncated at the route end (no extrapolation).
+For `"centered"` and `"smoothed"`, `by − lat_shift` is used instead of `by`.
+This places the anchor at `body-y = 0`, removing the translational cross-track
+offset while preserving heading error and curvature.
 
-**Per-sample transform.** For each `s'`, let `Q = route.point_at_s(s')`:
+### 9.2 Strategies
+
+| Strategy | Lateral shift | Corner smoothing |
+|----------|--------------|-----------------|
+| `"raw"` | no | none |
+| `"centered"` | yes (§9.1) | none |
+| `"smoothed"` | yes (§9.1) | circular-arc fillet on forward portion (§9.3) |
+
+The **behind-stub** (samples with `s' < cursor_s`) is never smoothed regardless
+of strategy. The behind-stub reflects where the car actually came from; smoothing
+it would misrepresent history.
+
+### 9.3 Arc-fillet corner smoothing (`smoothing.smooth_corners`)
+
+The forward portion of `"smoothed"` is processed by
+`smooth_corners(pts, min_radius, corner_angle_deg, ds, eps)` in three steps:
+
+**Step 1: RDP simplification.** `rdp(pts, eps)` (Ramer-Douglas-Peucker, tolerance
+`simplify_eps_m = 0.20 m` default) reduces the `ds`-spaced polyline to its
+geometric skeleton. This ensures arc fitting operates on real geometric vertices
+rather than interpolated midpoints.
+
+**Step 2: Circular-arc fillet.** For each interior RDP vertex `V` with
+predecessor `A` and successor `B`:
 
 ```
-(bx, by) = to_body_frame(Q − pose, yaw)
-           = (  (Q_e − pose_e)·cos(yaw) + (Q_n − pose_n)·sin(yaw),
-               −(Q_e − pose_e)·sin(yaw) + (Q_n − pose_n)·cos(yaw) )
-
-follow_path[k] = [ bx,  by − lat_shift ]
+d1 = unit(V − A),   d2 = unit(B − V)
+δ  = acos(clamp(d1 · d2, −1, 1))          (unsigned turn angle)
 ```
 
-The forward component `bx` is **identical** to the raw body-frame value; only `by` is shifted. The result: the anchor point (at `s' = cursor_s`) has `by − lat_shift = 0`, i.e. it lands on the `y = 0` (forward) axis. All subsequent points retain their angular relationship, so heading error and curvature are preserved exactly.
-
-### 9.4 Relationship to `est_lat_dev`
-
-`est_lat_dev` (§5.4) is the signed perpendicular offset measured at the **cursor point** using the route's left normal: `est_lat_dev = (pose − P) · n_left`. `lat_shift` is the body-`y` of `(P − pose)`, which is `−body_y_of(pose − P)`. At zero heading error the left-normal and the body-`y` axis coincide, so:
+If `δ < radians(corner_angle_deg)`, the vertex is skipped (not sharp enough).
+Otherwise:
 
 ```
-lat_shift ≈ −est_lat_dev     (exact when heading error = 0)
+T = min(R_min · tan(δ/2),
+        0.5 · |V − A|,           # half incoming leg
+        0.5 · |B − V|)           # half outgoing leg
+R_eff = T / tan(δ/2)
 ```
 
-At non-zero heading error the two differ by the heading-error cross term, but remain close for small heading errors (≤ a few degrees in practice).
+Tangent point on incoming leg: `p1 = V − T · d1`.
+Arc center: `C = p1 + R_eff · n` where `n` is the inward perpendicular
+(`n = (−d1.y, d1.x)` for left turns, `(d1.y, −d1.x)` for right turns).
+Arc sweep from `a1 = atan2(p1.y − C.y, p1.x − C.x)` through angle `δ`
+with `steps = max(1, ceil(R_eff · δ / ds))` arc points.
 
-**Crucially:** `est_lat_dev`, `cursor_s`, and `matched_seg` are computed by the `Projector` independently of `follow_path`. The follow-path computation is a read-only consumer of `cursor_s`; it does not alter matching or grading in any way.
+**Curvature guarantee.** When neither half-leg clamp is active,
+`T = R_min · tan(δ/2)` and `R_eff = R_min`, so `κ = 1/R_eff = 1/R_min`.
+The curvature on all non-degenerate arcs satisfies `κ ≤ 1/min_turn_radius_m`,
+making the smoothed forward path drivable at the configured minimum turning
+radius. Degenerate case: if a leg is shorter than `2 · R_min · tan(δ/2)`,
+the half-leg clamp reduces `R_eff` below `R_min` — curvature may exceed the
+limit for that arc only.
 
-### 9.5 Properties
+**Step 3: Uniform resample.** `resample(out, ds)` restores `ds`-spaced sampling
+so the consumer always receives a uniform step.
 
-| Property | Guarantee |
-|----------|-----------|
-| Forward-only window | `s' ≥ cursor_s` always; no behind-stub |
-| Route-end truncation | `s' ≤ route.length`; no extrapolation |
-| Lateral anchor | anchor point `s' = cursor_s` has `by = 0` in `follow_path` |
-| Forward coordinate | `bx` unchanged from raw body-frame; heading error preserved |
-| Matching unaffected | `cursor_s`, `matched_seg`, `est_lat_dev` computed before and independently of `follow_path` |
+### 9.4 Per-frame path structure
+
+`ProjectOutput.path` is a flat list `[[x, y], …]` covering:
+
+```
+s ∈ [max(cursor_s − behind_m, 0),  min(cursor_s + ahead_m, route.length)]
+```
+
+sampled at `sample_ds_m` (default 0.5 m). Points with `s < cursor_s` form the
+behind-stub (unsmoothed); points with `s ≥ cursor_s` form the forward portion
+(smoothed for `"smoothed"` strategy). No extrapolation beyond route ends.
+
+### 9.5 Relationship to telemetry
+
+`est_lat_dev`, `cursor_s`, and `matched_seg` are computed by the matching step
+before path construction and are independent of the chosen strategy. Changing
+`strategy` or any path parameter never affects the matching decisions.
+
+### 9.6 JavaScript twin
+
+`viewer/project_route.js` is a DOM-free port exposed as `window.ProjectRoute`.
+It implements the same matching (`bestInRange`, `match`), body-frame rotation
+(`toBody`), and smoothing (`rdp`, `smoothCorners`, `resample`) as the Python
+reference. The heading-gate angular difference uses a true-modulo helper to match
+Python/numpy `%` semantics. Parity is enforced by `tests/e2e/test_parity_py_js.py`
+(30 cases: 2 routes × 5 poses × 3 strategies; tolerance 1e-3 m per point).
 
 ---
 
@@ -429,3 +468,9 @@ At non-zero heading error the two differ by the heading-error cross term, but re
   (§5.4); no frame is dropped (§5.2).
 - **Reproducibility** — a single seeded generator drives all noise (§7), so
   regenerating any case is bit-identical.
+- **Drivable arcs** — for non-degenerate legs, the `"smoothed"` strategy
+  produces a forward path with curvature `κ ≤ 1/min_turn_radius_m` on all
+  arcs and `κ = 0` on straights (§9.3).
+- **Python↔JS parity** — `viewer/project_route.js` produces numerically
+  identical output to `project_route.py` (tolerance 1e-3 m) for all three
+  strategies, verified by `tests/e2e/test_parity_py_js.py`.

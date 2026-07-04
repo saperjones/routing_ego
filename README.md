@@ -6,16 +6,19 @@ route as seen from the driver's viewpoint. The hard part is doing this
 **robustly** under RTK localization error and on routes that **cross
 themselves**, without ever locking onto the wrong branch.
 
-The project is two halves that meet at one JSON artifact:
+The project is two halves that meet at a JSON file:
 
-- a **Python core** (numpy) that runs the projection algorithm over a seeded
-  two-layer simulation and prebakes 14 graded test cases to `out/*.json`;
-- a **static HTML/Canvas viewer** that plays those cases back (route panorama,
-  BEV, driver-view, telemetry, frame-by-frame + continuous playback).
+- a **Python core** (numpy) that runs the stateful projection algorithm over a
+  seeded two-layer simulation and prebakes 14 graded test cases to `out/*.json`;
+  the JSON carries route geometry, ego poses, and matching decisions —
+  **not** a precomputed body-frame path;
+- a **static HTML/Canvas viewer** that loads JSON and calls a DOM-free JS twin
+  of the projection algorithm (`viewer/project_route.js`, `window.ProjectRoute`)
+  live each frame, so changing the algorithm selector or parameter sliders updates
+  the driver view instantly without a server round-trip.
 
-The viewer holds **no matching logic** — it only replays prebaked results and
-applies a fixed display rotation — so what you see is exactly what the
-algorithm produced.
+Python (`project_route.py`) is authoritative; `tests/e2e/test_parity_py_js.py`
+binds the two implementations to within 1e-3 m.
 
 ---
 
@@ -46,16 +49,19 @@ PORT=9000 ./run.sh  # override the port (default 8000)
   arrows so the travel order is legible.
 - **Center top — BEV (top-down):** the planned route plus the car's actual
   driven trajectory and an oriented car marker.
-- **Center bottom — Driver view (`+x` up, `+y` left):** the projected route
-  slice in the body frame, car at the origin. Tick the **perspective** checkbox
-  to switch it into a windshield 3D view — a pinhole projection of the route
-  onto the road plane ahead (horizon, ground grid, and the route as a ribbon
-  that narrows toward the vanishing point). Camera constants live in `PERSP` in
-  `viewer.js`.  
-  The **"remove lateral offset"** checkbox (default ON) controls whether the
-  driver view draws the prebaked `follow_path` (cross-track offset removed,
-  heading error and curvature preserved) or the raw route slice. It applies to
-  both the top-down and the perspective driver views; the BEV is unaffected.
+- **Center bottom — Driver view (`+x` up, `+y` left):** the body-frame path
+  computed live by `ProjectRoute.projectRoute` each frame. Tick the
+  **perspective** checkbox to switch into a windshield 3D view (horizon, ground
+  grid, route as a ribbon narrowing toward the vanishing point). Camera constants
+  live in `PERSP` in `viewer.js`.
+  - **Algorithm selector** — `Raw (keep offset)` / `Centered (no offset)` /
+    `Smoothed (drivable corners)` — maps to `ProjectConfig.strategy`. Raw keeps
+    the lateral cross-track offset visible; Centered removes it (anchor at
+    `y = 0`); Smoothed additionally replaces sharp corners with circular-arc
+    fillets (curvature ≤ 1/R_min on non-degenerate legs).
+  - **Parameter sliders** — `R_min` (3–12 m), `behind` (0–10 m), `ahead`
+    (20–100 m), `corner°` (5–45°) — update `ProjectConfig` fields live. Wider
+    radius means gentler arcs; all changes are instant, no reload.
 - **Bottom — playback:** step ◀ ▶, play/pause, scrubber, speed (0.5×/1×/2×).
 - **Right — telemetry:** heading, speed, position, estimated & true lateral
   deviation, progress, matched segment, frame index, and the case verdict.
@@ -67,40 +73,51 @@ regenerates or re-randomizes it, so differences between cases are meaningful.
 
 ## How it works
 
-### The projection algorithm (`src/parking_proj/projection.py`)
+### The projection algorithm (`src/parking_proj/project_route.py`)
 
-A stateful projector carries a **progress cursor** `cursor_s` (arc-length along
-the route). Each frame it:
+The portable pure function `project_route(route, pose_e, pose_n, yaw, config, state=None, speed=None) → ProjectOutput`
+is the single entry point for body-frame path computation. The caller holds a
+tiny `ProjectState(cursor_s, initialized)` and passes it back each frame. Each
+frame the function:
 
-1. matches the measured pose only within a bounded **forward window**
-   `[cursor_s − 0.3 m, cursor_s + 15 m]` (the forward reach is the configurable
-   **endurable offset**, default 15 m — wide enough to catch the vehicle after a
-   localization jump, still far below the ≥64 m self-crossing stroke gap), gated
-   by **heading agreement**
-   (route tangent vs. vehicle heading, 60° gate; widened for a single frame if
-   nothing passes, so a frame is never dropped);
-2. advances the cursor **monotonically** (`cursor_s = max(cursor_s, matched_s)`)
-   — valid because the product rule forbids re-walking a road or U-turning;
-3. emits the route slice in `[cursor_s − 5 m, cursor_s + 20 m]` transformed into
-   the body frame, plus telemetry (lateral deviation, matched segment,
-   end-of-route flag);
-4. computes a **follow-path** — a forward-only, 0–70 m look-ahead, 0.5 m
-   sampled body-frame path with the cross-track offset removed (see
-   [Follow-path output](#follow-path-output-follow_path--lat_shift)), emitted
-   as `follow_path` (`[[x,y],…]`) and `lat_shift` (scalar) per frame.
+1. **Matches** the measured pose within a bounded forward window
+   `[cursor_s − 0.3 m, cursor_s + 15 m]` gated by **heading agreement**
+   (60° gate; widened if nothing passes, so a frame is never dropped). Frame 0
+   uses a global search to seed the cursor.
+2. **Advances the cursor monotonically** (`cursor_s = max(cursor_s, matched_s)`)
+   — valid because re-walking and U-turns are forbidden by product definition.
+3. **Constructs the body-frame path** over `[cursor_s − behind_m, cursor_s + ahead_m]`
+   (defaults: 5 m behind, 70 m ahead, 0.5 m step) according to the chosen strategy:
 
-### Follow-path output (`follow_path` / `lat_shift`)
+| Strategy | Lateral offset | Corner smoothing |
+|----------|---------------|-----------------|
+| `"raw"` | kept | none |
+| `"centered"` | removed (anchor at `y = 0`) | none |
+| `"smoothed"` | removed | circular-arc fillet on forward portion |
 
-Each frame the algorithm also emits:
+4. **Returns** `ProjectOutput`: `path` (`[[x,y],…]` body frame), `cursor_s`,
+   `lat_dev`, `matched_seg`, `end_flag`, and the next `state`.
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `follow_path` | `[[x,y],…]` body frame | Route look-ahead with lateral offset removed. `+x` forward, `+y` left. Forward-only window `[cursor_s, cursor_s + 70 m]`, truncated at route end, sampled every 0.5 m. |
-| `lat_shift` | scalar (m) | The meters subtracted from every point's lateral coordinate. Equals the car-frame body-`y` of the anchor (route point at `cursor_s`). At zero heading error `lat_shift ≈ −est_lat_dev`. |
+**Smoothed corners — arc-fillet math.** The forward portion of the `"smoothed"`
+path is processed by `smooth_corners` in `smoothing.py`:
 
-The anchor point (`s = cursor_s`) lands at `y = 0` in `follow_path`; all forward coordinates (`x`) are identical to the raw body-frame values, so heading error and curvature are preserved. `est_lat_dev`, `cursor_s`, and `matched_seg` are **unaffected** — `follow_path` is a read-only post-processing step.
+1. **RDP simplification** (tolerance `simplify_eps_m`, default 0.20 m) detects
+   the real geometric vertices.
+2. **Circular-arc fillet** — for each vertex with unsigned turn angle `δ`, the
+   tangent length is `T = min(R_min · tan(δ/2), half each adjacent leg)` and
+   the effective radius is `R_eff = T / tan(δ/2)`. For non-degenerate legs
+   (length > `2 · R_min · tan(δ/2)`), curvature `κ ≤ 1/R_min`. The behind-stub
+   is never smoothed.
+3. **Uniform resample** at `sample_ds_m` restores even spacing.
 
-The per-case `config` object includes `follow_ahead: 70.0` and `follow_ds: 0.5` so downstream consumers can interpret the window without reading source code. The exported `follow_path` is intended as the deliverable for downstream path-following controllers: an offset-free, 70 m look-ahead, body-frame path at 10 Hz.
+The JS twin (`viewer/project_route.js`, `window.ProjectRoute`) implements the
+same math; parity is verified to 1e-3 m by `tests/e2e/test_parity_py_js.py`.
+
+**Self-crossing routes** (the "又"/X case) are resolved by construction: on the
+first pass through a crossing the other stroke is far outside the forward window;
+on the later pass the cursor has already advanced past the intervening waypoints.
+The heading gate is a backstop. No pose/heading smoothing is done anywhere in the
+algorithm — an upstream module is assumed to own that.
 
 **Self-crossing routes** (the "又"/X case) are resolved by construction: on the
 first pass through a crossing the other stroke is far outside the forward
@@ -168,7 +185,7 @@ All 14 cases pass (0 mismatches, 0 backward jumps, 0 dropouts).
 ## Testing
 
 ```bash
-pytest -v            # 47 unit + acceptance tests (fast, no browser)
+pytest -v            # 56 unit + acceptance tests (fast, no browser)
 ```
 
 **End-to-end (headless browser):**
@@ -176,18 +193,18 @@ pytest -v            # 47 unit + acceptance tests (fast, no browser)
 ```bash
 pip install -e ".[e2e]"
 python -m playwright install chromium
-pytest -m e2e -v     # 15 tests
+pytest -m e2e -v     # 17 tests
 ```
 
 The e2e suite serves the repo root, drives the viewer in headless Chromium, and
 asserts the canvases render with meaningful coverage (the route spans the
 canvas, not just a stray pixel), telemetry populates, playback steps, the
 scrubber seeks, the BEV layer rebuilds on case switch, and **no JS errors**
-occur. It also verifies the follow-path **web effect** at the pixel level: with
-"remove lateral offset" on, the driver-view route stroke renders at the car's
-centreline (directly ahead); with it off, the stroke is displaced sideways, and
-the two renders differ horizontally by exactly `lat_shift × pixels-per-metre`.
-It's excluded from the default `pytest` run via the `e2e` marker.
+occur. It also includes `test_parity_py_js.py`, which runs 30 cases (2 routes ×
+5 poses × 3 strategies) through both the Python `project_route` function and the
+JS twin (`window.ProjectRoute`) and asserts path coordinates, `matched_seg`, and
+`end_flag` all agree to within 1e-3 m. It's excluded from the default `pytest`
+run via the `e2e` marker.
 
 ---
 
@@ -228,8 +245,9 @@ GCJ-02→WGS-84→ENU, heading `yaw_boot`+boot→ENU offset, planned route as th
 Route) and prebakes `out/real/<id>.json` plus an OSM basemap. The BEV shows the
 region map with the planned route + ego track + direction arrows, all in WGS-84.
 Real cases have no PASS/FAIL or true-lat-dev (no ground truth); `est_lat_dev` is
-still shown. Each real frame includes `follow_path` and `lat_shift` (same
-contract as simulation; see [Follow-path output](#follow-path-output-follow_path--lat_shift)).
+still shown. Real frames carry the same raw inputs (route, `meas_pose`,
+`cursor_s`, `matched_seg`) as simulation frames; the viewer computes the
+body-frame path live from them using the selected algorithm and sliders.
 
 **Tile source (configurable).** By default tiles come from OpenStreetMap
 (`https://tile.openstreetmap.org/{z}/{x}/{y}.png`). Override via env vars to use

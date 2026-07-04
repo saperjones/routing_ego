@@ -12,9 +12,16 @@
 
 ## Architecture / invariants
 
-- The system splits cleanly at JSON: the Python core (numpy) runs the projection
-  algorithm and prebakes results; the static HTML viewer only replays prebaked JSON
-  — it contains no matching logic.
+- The system splits at JSON: the Python core (numpy) runs the stateful matching
+  algorithm and prebakes decisions (`cursor_s`, `matched_seg`, telemetry) plus
+  raw route geometry and ego poses. The JSON carries **no** precomputed
+  body-frame path.
+- The viewer (`viewer/project_route.js`, `window.ProjectRoute`) runs the shared
+  projection algorithm live each frame — same math as `src/parking_proj/project_route.py`
+  — so the algorithm selector (`#algo-select`: raw / centered / smoothed) and
+  parameter sliders (`#p-radius`, `#p-behind`, `#p-ahead`, `#p-corner`) update
+  the driver view instantly. Python (`project_route.py`) is authoritative;
+  `tests/e2e/test_parity_py_js.py` binds the two (30 cases, tolerance 1e-3 m).
 - Real datasets are prebaked through the same Python algorithm into
   `out/real/<id>.json` with `mode:"real"` (no ground truth → no verdict or
   true_lat_dev). The viewer's real-data BEV renders an OSM basemap in Web-Mercator
