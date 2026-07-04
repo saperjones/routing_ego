@@ -37,6 +37,10 @@ def _fixtures():
     routes = {
         "straight": route_from_waypoints([[0.0, 0.0], [100.0, 0.0]], ["1", "2"]),
         "corner": route_from_waypoints([[0.0, 0.0], [30.0, 0.0], [30.0, 30.0]], ["1", "2", "3"]),
+        # shallow bend: second-leg direction atan2(8,30)≈14.9°, corner angle ≈15°.
+        # Above the 10° fillet threshold but below 2*theta_sp≈17.2°, so the
+        # shortened-spiral branch (2*theta_sp > delta) fires in project_route.
+        "shallow": route_from_waypoints([[0.0, 0.0], [30.0, 0.0], [60.0, 8.0]], ["1", "2", "3"]),
     }
     # Standard poses plus large-yaw poses that exercise the negative-angle-diff branch.
     # yaw=2.9 and yaw=-2.9 make atan2(tangent)-yaw < -pi for some route orientations,
