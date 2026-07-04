@@ -57,6 +57,7 @@ routing_ego/
 │   ├── geo.py                   # WGS84 ⇄ local ENU (Hefei origin); heading→math-yaw
 │   ├── route.py                 # Route value object: dense 0.1 m polyline, arc-length, tangents, waypoint labels
 │   ├── projection.py            # THE algorithm: stateful projector (progress cursor)
+│   ├── project_route.py         # portable pure function: ProjectConfig/State/Output + 3 strategies (raw/centered/smoothed)
 │   ├── simulate.py              # two-layer sim: tracking layer + RTK error layer, 10 Hz
 │   ├── scenarios.py             # test-case matrix: geometry + tier configs + fixed seeds
 │   └── generate.py              # runs all scenarios → JSON per case + index.json; computes verdicts
