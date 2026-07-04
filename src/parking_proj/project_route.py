@@ -28,7 +28,7 @@ class ProjectConfig:
     corner_angle_deg: float = 10.0
     simplify_eps_m: float = 0.20
     corner_style: str = "clothoid"       # "clothoid" | "arc"
-    clothoid_transition_m: float = 4.0   # smooth default; human ego-track calibration was 1.5 m (docs/clothoid_calibration.md)
+    clothoid_transition_m: float = 8.0   # smooth default; human ego-track calibration was 1.5 m (docs/clothoid_calibration.md)
     human_cut_m: float = 2.2             # "human" strategy: inside corner-cut at a 90° turn (m), calibrated from ego tracks
 
 

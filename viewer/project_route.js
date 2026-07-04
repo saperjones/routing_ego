@@ -5,7 +5,7 @@
     strategy: "smoothed", behind_m: 5.0, ahead_m: 70.0, sample_ds_m: 0.5,
     search_ahead_m: 15.0, search_back_m: 0.3, heading_gate_deg: 60.0,
     min_turn_radius_m: 8.0, corner_angle_deg: 10.0, simplify_eps_m: 0.20,
-    corner_style: "clothoid", clothoid_transition_m: 4.0, human_cut_m: 2.2,
+    corner_style: "clothoid", clothoid_transition_m: 8.0, human_cut_m: 2.2,
   };
 
   // True modulo (always non-negative), matching Python/numpy % behaviour.
