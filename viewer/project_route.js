@@ -5,6 +5,7 @@
     strategy: "smoothed", behind_m: 5.0, ahead_m: 70.0, sample_ds_m: 0.5,
     search_ahead_m: 15.0, search_back_m: 0.3, heading_gate_deg: 60.0,
     min_turn_radius_m: 5.0, corner_angle_deg: 10.0, simplify_eps_m: 0.20,
+    corner_style: "clothoid", clothoid_transition_m: 1.5,
   };
 
   // True modulo (always non-negative), matching Python/numpy % behaviour.
@@ -49,7 +50,68 @@
     return out;
   }
 
-  function smoothCorners(pts, R, angleDeg, ds, eps) {
+  const INTERNAL_DS = 0.1;
+  function clothoidCorner(delta, radius, transition, internalDs) {
+    internalDs = internalDs || INTERNAL_DS;
+    if (delta <= 1e-9 || transition <= 1e-9 || radius <= 1e-9 || Math.abs(Math.sin(delta)) < 1e-9)
+      return { pts: [[0, 0]], T: 0 };
+    const thetaSp = transition / (2 * radius);
+    let lt, arcLen;
+    if (2 * thetaSp <= delta) { lt = transition; arcLen = radius * (delta - 2 * thetaSp); }
+    else { lt = radius * delta; arcLen = 0; }
+    const total = 2 * lt + arcLen, invR = 1 / radius;
+    const kappa = (s) => s < lt ? (s / lt) * invR
+                        : s <= lt + arcLen ? invR
+                        : ((total - s) / lt) * invR;
+    const n = Math.max(2, Math.ceil(total / internalDs)), h = total / n;
+    let x = 0, y = 0, theta = 0, s = 0;
+    const pts = [[0, 0]];
+    for (let i = 0; i < n; i++) {
+      const k0 = kappa(s), k1 = kappa(s + h);
+      const thetaMid = theta + 0.5 * k0 * h;
+      x += Math.cos(thetaMid) * h; y += Math.sin(thetaMid) * h;
+      theta += 0.5 * (k0 + k1) * h; s += h;
+      pts.push([x, y]);
+    }
+    const xe = pts[pts.length - 1][0], ye = pts[pts.length - 1][1];
+    return { pts, T: xe - ye / Math.tan(delta) };
+  }
+
+  function _arcWorld(ax, ay, vx, vy, bx, by, R, delta, cross, ds) {
+    const [d1x, d1y] = unit(vx - ax, vy - ay);
+    const tanHalf = Math.tan(delta / 2);
+    if (tanHalf < 1e-9) return [[vx, vy]];
+    const T = Math.min(R * tanHalf, 0.5 * Math.hypot(vx - ax, vy - ay), 0.5 * Math.hypot(bx - vx, by - vy));
+    if (T < 1e-6) return [[vx, vy]];
+    const rEff = T / tanHalf;
+    const p1x = vx - T * d1x, p1y = vy - T * d1y;
+    const [nx, ny] = cross >= 0 ? [-d1y, d1x] : [d1y, -d1x];
+    const cx = p1x + rEff * nx, cy = p1y + rEff * ny;
+    const a1 = Math.atan2(p1y - cy, p1x - cx), sign = cross >= 0 ? 1 : -1;
+    const steps = Math.max(1, Math.ceil(rEff * delta / ds));
+    const out = [[p1x, p1y]];
+    for (let k = 1; k <= steps; k++) {
+      const a = a1 + sign * delta * (k / steps);
+      out.push([cx + rEff * Math.cos(a), cy + rEff * Math.sin(a)]);
+    }
+    return out;
+  }
+
+  function _clothoidWorld(ax, ay, vx, vy, bx, by, R, transition, delta, cross) {
+    const [d1x, d1y] = unit(vx - ax, vy - ay);
+    const clamp = 0.5 * Math.min(Math.hypot(vx - ax, vy - ay), Math.hypot(bx - vx, by - vy));
+    const [nx, ny] = cross >= 0 ? [-d1y, d1x] : [d1y, -d1x];
+    for (const factor of [1, 0.5, 0.25]) {
+      const { pts: local, T } = clothoidCorner(delta, R, transition * factor);
+      if (T > 0 && T <= clamp) {
+        const p1x = vx - T * d1x, p1y = vy - T * d1y;
+        return local.map(([lx, ly]) => [p1x + lx * d1x + ly * nx, p1y + lx * d1y + ly * ny]);
+      }
+    }
+    return null;  // doesn't fit -> caller uses arc
+  }
+
+  function smoothCorners(pts, R, angleDeg, ds, eps, cornerStyle, transition) {
     if (pts.length < 3) return resample(pts, ds);
     const verts = rdp(pts, eps);
     if (verts.length < 3) return resample(verts, ds);
@@ -61,21 +123,15 @@
       let dot = d1x * d2x + d1y * d2y; dot = dot < -1 ? -1 : dot > 1 ? 1 : dot;
       const delta = Math.acos(dot);
       if (delta < thresh) { out.push([vx, vy]); continue; }
-      const cross = d1x * d2y - d1y * d2x, tanHalf = Math.tan(delta / 2);
-      if (tanHalf < 1e-9) { out.push([vx, vy]); continue; }
-      const T = Math.min(R * tanHalf, 0.5 * Math.hypot(vx - ax, vy - ay), 0.5 * Math.hypot(bx - vx, by - vy));
-      if (T < 1e-6) { out.push([vx, vy]); continue; }
-      const rEff = T / tanHalf;
-      const p1x = vx - T * d1x, p1y = vy - T * d1y;
-      const [nx, ny] = cross >= 0 ? [-d1y, d1x] : [d1y, -d1x];
-      const cx = p1x + rEff * nx, cy = p1y + rEff * ny;
-      const a1 = Math.atan2(p1y - cy, p1x - cx), sign = cross >= 0 ? 1 : -1;
-      const steps = Math.max(1, Math.ceil(rEff * delta / ds));
-      out.push([p1x, p1y]);
-      for (let k = 1; k <= steps; k++) {
-        const a = a1 + sign * delta * (k / steps);
-        out.push([cx + rEff * Math.cos(a), cy + rEff * Math.sin(a)]);
+      const cross = d1x * d2y - d1y * d2x;
+      let corner = null;
+      if (cornerStyle === "clothoid") {
+        corner = _clothoidWorld(ax, ay, vx, vy, bx, by, R, transition, delta, cross);
       }
+      if (corner === null) {
+        corner = _arcWorld(ax, ay, vx, vy, bx, by, R, delta, cross, ds);
+      }
+      for (const pt of corner) out.push(pt);
     }
     out.push(verts[verts.length - 1]);
     return resample(out, ds);
@@ -140,7 +196,8 @@
     }
     let f = fwd;
     if (cfg.strategy === "smoothed" && fwd.length >= 3)
-      f = smoothCorners(fwd, cfg.min_turn_radius_m, cfg.corner_angle_deg, cfg.sample_ds_m, cfg.simplify_eps_m);
+      f = smoothCorners(fwd, cfg.min_turn_radius_m, cfg.corner_angle_deg, cfg.sample_ds_m, cfg.simplify_eps_m,
+                        cfg.corner_style, cfg.clothoid_transition_m);
     return { path: behind.concat(f), cursor_s: m.cursor_s, lat_dev: m.lat_dev,
              matched_seg: m.matched_seg, end_flag: m.end_flag,
              state: { cursor_s: m.cursor_s, initialized: true } };
@@ -173,5 +230,5 @@
   }
 
   root.ProjectRoute = { DEFAULT_CONFIG, projectRoute, match, rdp, smoothCorners, resample,
-                        toBody, indexAtS, pointAtS, bestInRange, buildRoute };
+                        toBody, indexAtS, pointAtS, bestInRange, buildRoute, clothoidCorner };
 })(typeof window !== "undefined" ? window : globalThis);
