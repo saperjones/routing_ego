@@ -5,6 +5,7 @@ corners is bounded by 1/min_radius, so the resulting path is drivable at a
 minimum turning radius of min_radius.
 """
 import math
+from .clothoid import clothoid_corner
 
 
 def rdp(pts, eps):
@@ -61,16 +62,50 @@ def _unit(dx, dy):
     return (0.0, 0.0) if n < 1e-9 else (dx / n, dy / n)
 
 
-def smooth_corners(pts, min_radius, corner_angle_deg, ds, eps):
-    """Replace sharp corners of a polyline with circular-arc fillets (radius >= min_radius).
+def _arc_world(ax, ay, vx, vy, bx, by, min_radius, delta, cross, ds):
+    d1x, d1y = _unit(vx - ax, vy - ay)
+    d2x, d2y = _unit(bx - vx, by - vy)
+    tan_half = math.tan(delta / 2.0)
+    if tan_half < 1e-9:
+        return [(vx, vy)]
+    T = min(min_radius * tan_half, 0.5 * math.hypot(vx - ax, vy - ay),
+            0.5 * math.hypot(bx - vx, by - vy))
+    if T < 1e-6:
+        return [(vx, vy)]
+    r_eff = T / tan_half
+    p1x, p1y = vx - T * d1x, vy - T * d1y
+    nx, ny = (-d1y, d1x) if cross >= 0 else (d1y, -d1x)
+    cx, cy = p1x + r_eff * nx, p1y + r_eff * ny
+    a1 = math.atan2(p1y - cy, p1x - cx)
+    sign = 1.0 if cross >= 0 else -1.0
+    steps = max(1, int(math.ceil(r_eff * delta / ds)))
+    out = [(p1x, p1y)]
+    for k in range(1, steps + 1):
+        a = a1 + sign * delta * (k / steps)
+        out.append((cx + r_eff * math.cos(a), cy + r_eff * math.sin(a)))
+    return out
 
-    Returns a new polyline resampled at ds with curvature <= 1/min_radius on
-    arcs and 0 on straights. corner_angle_deg: only fillet turns sharper than
-    this. eps: RDP tolerance for corner-vertex detection. When an adjacent leg
-    is shorter than the tangent length required for min_radius, the tangent
-    length is clamped to half the leg, so the effective radius is reduced to
-    fit — curvature may exceed 1/min_radius only in that degenerate case.
-    """
+
+def _clothoid_world(ax, ay, vx, vy, bx, by, min_radius, transition, delta, cross):
+    d1x, d1y = _unit(vx - ax, vy - ay)
+    clamp = 0.5 * min(math.hypot(vx - ax, vy - ay), math.hypot(bx - vx, by - vy))
+    for factor in (1.0, 0.5, 0.25):
+        local, T = clothoid_corner(delta, min_radius, transition * factor)
+        if 0.0 < T <= clamp:
+            p1x, p1y = vx - T * d1x, vy - T * d1y
+            nx, ny = (-d1y, d1x) if cross >= 0 else (d1y, -d1x)   # +y (left) -> turn side
+            return [(p1x + lx * d1x + ly * nx, p1y + lx * d1y + ly * ny) for lx, ly in local]
+    return None                                                    # doesn't fit -> caller uses arc
+
+
+def smooth_corners(pts, min_radius, corner_angle_deg, ds, eps,
+                   corner_style="arc", transition=3.0):
+    """Replace sharp corners with fillets. corner_style="arc" uses a circular arc
+    (curvature bounded by 1/min_radius, but jumps at entry); "clothoid" uses a
+    curvature-continuous clothoid of the given transition length, falling back to
+    the arc when the clothoid cannot fit the adjacent legs. Output is resampled at
+    ds. Only corners sharper than corner_angle_deg are filleted; eps is the RDP
+    corner-detection tolerance."""
     if len(pts) < 3:
         return resample(pts, ds)
     verts = rdp(pts, eps)
@@ -85,32 +120,16 @@ def smooth_corners(pts, min_radius, corner_angle_deg, ds, eps):
         d1x, d1y = _unit(vx - ax, vy - ay)
         d2x, d2y = _unit(bx - vx, by - vy)
         dot = max(-1.0, min(1.0, d1x * d2x + d1y * d2y))
-        delta = math.acos(dot)                       # unsigned turn angle
+        delta = math.acos(dot)
         if delta < thresh:
             out.append((vx, vy))
             continue
-        cross = d1x * d2y - d1y * d2x                 # > 0 => left turn
-        half = delta / 2.0
-        tan_half = math.tan(half)
-        if tan_half < 1e-9:
-            out.append((vx, vy))
-            continue
-        T = min(min_radius * tan_half,
-                0.5 * math.hypot(vx - ax, vy - ay),
-                0.5 * math.hypot(bx - vx, by - vy))
-        if T < 1e-6:
-            out.append((vx, vy))
-            continue
-        r_eff = T / tan_half
-        p1x, p1y = vx - T * d1x, vy - T * d1y
-        nx, ny = (-d1y, d1x) if cross >= 0 else (d1y, -d1x)   # toward turn center
-        cx, cy = p1x + r_eff * nx, p1y + r_eff * ny
-        a1 = math.atan2(p1y - cy, p1x - cx)
-        sign = 1.0 if cross >= 0 else -1.0
-        steps = max(1, int(math.ceil(r_eff * delta / ds)))
-        out.append((p1x, p1y))
-        for k in range(1, steps + 1):
-            a = a1 + sign * delta * (k / steps)
-            out.append((cx + r_eff * math.cos(a), cy + r_eff * math.sin(a)))
+        cross = d1x * d2y - d1y * d2x
+        corner = None
+        if corner_style == "clothoid":
+            corner = _clothoid_world(ax, ay, vx, vy, bx, by, min_radius, transition, delta, cross)
+        if corner is None:
+            corner = _arc_world(ax, ay, vx, vy, bx, by, min_radius, delta, cross, ds)
+        out.extend(corner)
     out.append(verts[-1])
     return resample(out, ds)

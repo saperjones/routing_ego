@@ -26,6 +26,8 @@ class ProjectConfig:
     min_turn_radius_m: float = 5.0
     corner_angle_deg: float = 10.0
     simplify_eps_m: float = 0.20
+    corner_style: str = "clothoid"       # "clothoid" | "arc"
+    clothoid_transition_m: float = 1.5   # calibrated default (see docs/clothoid_calibration.md)
 
 
 @dataclass
@@ -98,7 +100,9 @@ def project_route(route, pose_e, pose_n, yaw, config, state=None, speed=None):
         (behind_pts if s < cursor_s else fwd_pts).append((bx, by))
     if cfg.strategy == "smoothed" and len(fwd_pts) >= 3:
         fwd_pts = smooth_corners(fwd_pts, cfg.min_turn_radius_m, cfg.corner_angle_deg,
-                                 cfg.sample_ds_m, cfg.simplify_eps_m)
+                                 cfg.sample_ds_m, cfg.simplify_eps_m,
+                                 corner_style=cfg.corner_style,
+                                 transition=cfg.clothoid_transition_m)
     path = [[x, y] for x, y in (behind_pts + fwd_pts)]
     return ProjectOutput(path=path, cursor_s=cursor_s, lat_dev=lat_dev,
                          matched_seg=matched_seg, end_flag=end_flag,

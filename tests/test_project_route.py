@@ -65,3 +65,21 @@ def test_smoothed_rounds_the_corner():
                                          sample_ds_m=0.5)).path
     assert _max_heading_step(sharp) > 1.0            # centered has the sharp 90 deg
     assert _max_heading_step(smooth) <= 0.5 / 5.0 + 0.05   # smoothed is bounded (<= ds/R)
+
+
+def test_corner_style_default_is_clothoid_and_arc_selectable():
+    from parking_proj.project_route import ProjectConfig
+    assert ProjectConfig().corner_style == "clothoid"
+    r = l_route()
+    import math
+    def max_rate_jump(path):
+        rates = [math.atan2(path[i][1]-path[i-1][1], path[i][0]-path[i-1][0]) for i in range(1, len(path))]
+        return max(abs((rates[i]-rates[i-1]+math.pi) % (2*math.pi) - math.pi)
+                   for i in range(1, len(rates)))
+    # Use min_turn_radius_m=2.5 so clothoid tangent (~3.8 m) fits in 15 m half-leg,
+    # and with clothoid_transition_m=1.5 the peak section is shorter than the arc.
+    clo = project_route(r, 0.0, 0.0, 0.0, ProjectConfig(strategy="smoothed", corner_style="clothoid",
+                                                          min_turn_radius_m=2.5)).path
+    arc = project_route(r, 0.0, 0.0, 0.0, ProjectConfig(strategy="smoothed", corner_style="arc",
+                                                          min_turn_radius_m=2.5)).path
+    assert max_rate_jump(clo) < max_rate_jump(arc)

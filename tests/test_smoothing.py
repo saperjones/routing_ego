@@ -63,3 +63,21 @@ def test_smooth_corners_two_consecutive_corners():
     xs = [p[0] for p in out]
     assert any(abs(x) < 0.1 for x in xs), "straight middle leg missing near x=0 (chorded across)"
     assert any(abs(x - 10.0) < 0.1 for x in xs), "straight middle leg missing near x=10 (chorded across)"
+
+
+def test_clothoid_is_smoother_than_arc():
+    import math
+    from parking_proj.smoothing import smooth_corners
+    pts = _l_shape()                       # existing helper: 90-deg L
+    # min_radius=2.0 chosen so clothoid tangent length (~3.6 m) fits in 5 m half-leg;
+    # with transition=3.0 the clothoid's peak-curvature section is shorter than the
+    # arc's full arc, so the resampled max heading-change-per-step is smaller.
+    arc = smooth_corners(pts, 2.0, 10.0, 0.5, 0.2, corner_style="arc")
+    clo = smooth_corners(pts, 2.0, 10.0, 0.5, 0.2, corner_style="clothoid", transition=3.0)
+
+    def max_rate_jump(p):
+        rates = [math.atan2(p[i][1]-p[i-1][1], p[i][0]-p[i-1][0]) for i in range(1, len(p))]
+        return max(abs((rates[i]-rates[i-1]+math.pi) % (2*math.pi) - math.pi)
+                   for i in range(1, len(rates)))
+    # the clothoid has no single curvature jump; the arc snaps at entry
+    assert max_rate_jump(clo) < max_rate_jump(arc)
