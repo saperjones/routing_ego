@@ -327,7 +327,7 @@ See `docs/project_route_function.md` for the full math derivation.
 | Bounded projection accuracy | S1–S3 |
 | No dropouts | S1, E1–E4 |
 | Viewer behavior | V1–V7 |
-| Python↔JS parity (path, matched_seg, end_flag) | `tests/e2e/test_parity_py_js.py` (40 cases: 2 routes × 5 poses × 4 strategy/corner-style combos) |
+| Python↔JS parity (path, matched_seg, end_flag) | `tests/e2e/test_parity_py_js.py` (60 cases: 3 routes × 5 poses × 4 strategy/corner-style combos) |
 
 ---
 

@@ -453,22 +453,24 @@ The half-turn angle of one spiral:
 The total turn angle is `δ = 2θ_sp + L_a/R`. Given `δ` and `R`, the arc length
 is `L_a = max(0, R·δ − 2·θ_sp·R) = max(0, R·δ − L_t)`.
 
-The tangent length (from vertex to the spiral entry/exit point) is the same as
-the arc: `T = R · tan(δ/2)`. The local clothoid coordinates are computed by
-integrating the Fresnel-like integrals:
+The local clothoid polyline is built by integrating the linear-curvature profile
+`κ(s)` with a **fixed-step loop** (midpoint rule for position, trapezoid for
+heading) at a fine internal step `INTERNAL_DS = 0.1 m` — `n = ceil(total /
+INTERNAL_DS)`, `h = total / n`. There is **no** `scipy`, Simpson's rule, or
+Fresnel table; the identical loop runs in Python (`clothoid.py`) and JS
+(`project_route.js`), which is what makes the two agree bit-for-bit.
 
-```
-x(s) = ∫₀ˢ cos(κ(t)·t/2) dt,   y(s) = ∫₀ˢ sin(κ(t)·t/2) dt
-```
-
-numerically (Simpson's rule in JS, `scipy.integrate.quad` in Python). The
-resulting local polyline is rotated and translated to fit the world frame using
-the entry tangent direction at `p1 = V − T · d1`.
+The tangent length is taken from the integrated endpoint `(xe, ye)` as the
+intersection of the incoming (+x axis) and outgoing tangent lines:
+`T = xe − ye / tan(δ)`. For a full spiral–arc–spiral corner this is **larger**
+than the arc's `R · tan(δ/2)` (e.g. ~15% larger for a 90° turn at R = 5 m),
+because the spirals push the curve outward. The resulting local polyline is
+rotated and translated to the world frame at `p1 = V − T · d1`.
 
 **Fit procedure.** The clothoid is attempted at transition factors 1.0, 0.5, 0.25
 (`L_t = factor · clothoid_transition_m`). The attempt succeeds when
-`T ≤ 0.45 · min(l₁, l₂)`. If no factor succeeds, the corner falls back to a
-circular-arc fillet (§9.3.1).
+`T ≤ 0.5 · min(l₁, l₂)` (the same half-leg clamp as the arc). If no factor
+succeeds, the corner falls back to a circular-arc fillet (§9.3.1).
 
 **Curvature continuity.** The clothoid begins and ends at κ = 0 (tangent to the
 straight legs). There is no curvature jump at entry or exit. Peak curvature is
@@ -508,7 +510,7 @@ It implements the same matching (`bestInRange`, `match`), body-frame rotation
 (`rdp`, `smoothCorners`, `resample`) as the Python reference. The heading-gate
 angular difference uses a true-modulo helper to match Python/numpy `%` semantics.
 Parity is enforced by `tests/e2e/test_parity_py_js.py`
-(40 cases: 2 routes × 5 poses × 4 strategy/corner-style combos; tolerance 1e-3 m
+(60 cases: 3 routes × 5 poses × 4 strategy/corner-style combos; tolerance 1e-3 m
 per point).
 
 ---

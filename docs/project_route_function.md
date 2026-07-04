@@ -311,10 +311,11 @@ at the median across seven datasets.
 
 **Fit procedure.** For a corner with signed turn angle `δ` and legs of length
 `l₁`, `l₂`, the clothoid is attempted at transition factors 1.0, 0.5, 0.25
-(`L_t = factor · clothoid_transition_m`). The attempt succeeds when the tangent
-length `T = R · tan(δ/2)` satisfies `T ≤ 0.45 · min(l₁, l₂)` (leaves 10% margin
-beyond the half-leg clamp). If no factor succeeds, the corner falls back to a
-circular-arc fillet (§5.3).
+(`L_t = factor · clothoid_transition_m`). The tangent length is taken from the
+integrated spiral endpoint as `T = xe − ye / tan(δ)` (larger than the arc's
+`R · tan(δ/2)` because the spirals bow the curve outward). The attempt succeeds
+when `T ≤ 0.5 · min(l₁, l₂)` (the same half-leg clamp as the arc). If no factor
+succeeds, the corner falls back to a circular-arc fillet (§5.3).
 
 **Curvature continuity.** The clothoid entry begins at κ = 0 (straight) and ramps
 to `κ = 1/R`; the exit ramps back to 0. There is no curvature jump at the entry or
@@ -374,7 +375,7 @@ The clothoid is integrated by the same fixed-step loop in both Python and JS
 (midpoint position, trapezoid heading, `INTERNAL_DS = 0.1 m`, `n = ceil(total /
 INTERNAL_DS)`, `h = total / n`), so the two agree bit-for-bit.
 
-**Parity guarantee:** `tests/e2e/test_parity_py_js.py` runs 40 cases (2 routes ×
+**Parity guarantee:** `tests/e2e/test_parity_py_js.py` runs 60 cases (3 routes ×
 5 poses × 4 strategy/corner-style combos) through both Python and the JS twin in
 a headless Chromium browser, asserting path length, per-point coordinates
 (tolerance 1e-3 m), `matched_seg`, and `end_flag` all agree.

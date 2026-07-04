@@ -59,7 +59,7 @@ PORT=9000 ./run.sh  # override the port (default 8000)
     the lateral cross-track offset visible; Centered removes it (anchor at
     `y = 0`); Smoothed additionally replaces sharp corners with a smooth fillet
     (curvature ≤ 1/R_min on non-degenerate legs).
-  - **Corner-style selector** (`#corner-style`, visible when Smoothed is active)
+  - **Corner-style selector** (`#corner-style`; only affects the Smoothed strategy)
     — `arc` (circular-arc fillet, constant curvature) or `clothoid` (**default**,
     Euler spiral with curvature ramping linearly 0→1/R→0, no entry/exit snap).
     The `clothoid_transition_m = 1.5 m` transition length was calibrated from
@@ -209,7 +209,7 @@ asserts the canvases render with meaningful coverage (the route spans the
 canvas, not just a stray pixel), telemetry populates, playback steps, the
 scrubber seeks, the BEV layer rebuilds on case switch, and **no JS errors**
 occur. It also includes:
-- `test_parity_py_js.py`: runs 40 cases (2 routes × 5 poses × 4 strategy/corner-style
+- `test_parity_py_js.py`: runs 60 cases (3 routes × 5 poses × 4 strategy/corner-style
   combos) through both the Python `project_route` function and the JS twin
   (`window.ProjectRoute`) and asserts path coordinates, `matched_seg`, and `end_flag`
   all agree to within 1e-3 m.
