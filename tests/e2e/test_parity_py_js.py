@@ -28,7 +28,7 @@ def _wait(port, path, timeout=15):
 
 
 def _fixtures():
-    """(route_dict, pose, cfg_dict, expected_path) tuples from the Python impl."""
+    """(route_dict, pose, cfg_dict, expected_path, expected_matched_seg, expected_end_flag) tuples."""
     sys.path.insert(0, str(SRC))
     from parking_proj.geometry import route_from_waypoints
     from parking_proj.project_route import project_route, ProjectConfig
@@ -38,15 +38,26 @@ def _fixtures():
         "straight": route_from_waypoints([[0.0, 0.0], [100.0, 0.0]], ["1", "2"]),
         "corner": route_from_waypoints([[0.0, 0.0], [30.0, 0.0], [30.0, 30.0]], ["1", "2", "3"]),
     }
-    poses = [(10.0, 2.0, 0.0), (25.0, 1.0, 0.1), (0.0, 0.0, 0.0)]
+    # Standard poses plus large-yaw poses that exercise the negative-angle-diff branch.
+    # yaw=2.9 and yaw=-2.9 make atan2(tangent)-yaw < -pi for some route orientations,
+    # which would diverge before the true-modulo fix.
+    poses = [(10.0, 2.0, 0.0), (25.0, 1.0, 0.1), (0.0, 0.0, 0.0),
+             (10.0, 2.0, 2.9), (10.0, 2.0, -2.9)]
     for rk, r in routes.items():
-        rd = {"points": r.points.tolist(), "s": r.s.tolist(),
-              "tangents": r.tangents.tolist(), "length": r.length}
+        rd = {
+            "points": r.points.tolist(),
+            "s": r.s.tolist(),
+            "tangents": r.tangents.tolist(),
+            "length": r.length,
+            "seg_of_index": r.seg_of_index.tolist(),
+            "waypoint_indices": r.waypoint_indices,
+        }
         for (pe, pn, yaw) in poses:
             for strat in ("raw", "centered", "smoothed"):
                 cfg = ProjectConfig(strategy=strat)
                 out = project_route(r, pe, pn, yaw, cfg)
-                cases.append((rd, {"e": pe, "n": pn, "h": yaw}, asdict(cfg), out.path))
+                cases.append((rd, {"e": pe, "n": pn, "h": yaw}, asdict(cfg),
+                               out.path, out.matched_seg, out.end_flag))
     return cases
 
 
@@ -64,13 +75,21 @@ def test_js_matches_python():
             pg = br.new_page()
             pg.goto(f"http://127.0.0.1:{port}/tests/e2e/parity_harness.html")
             pg.wait_for_function("() => !!window.runCase")
-            for rd, pose, cfg, expected in _fixtures():
-                got = pg.evaluate("([r,po,c]) => window.runCase(r,po,c).path",
+            cases = _fixtures()
+            for rd, pose, cfg, expected_path, expected_seg, expected_end in cases:
+                got = pg.evaluate("([r,po,c]) => window.runCase(r,po,c)",
                                   [rd, pose, cfg])
-                assert len(got) == len(expected), (cfg["strategy"], len(got), len(expected))
-                for (gx, gy), (ex, ey) in zip(got, expected):
+                got_path = got["path"]
+                assert len(got_path) == len(expected_path), \
+                    (cfg["strategy"], pose, len(got_path), len(expected_path))
+                for (gx, gy), (ex, ey) in zip(got_path, expected_path):
                     assert abs(gx - ex) < 1e-3 and abs(gy - ey) < 1e-3, \
-                        (cfg["strategy"], gx, gy, ex, ey)
+                        (cfg["strategy"], pose, gx, gy, ex, ey)
+                assert got["matched_seg"] == expected_seg, \
+                    (cfg["strategy"], pose, "matched_seg", got["matched_seg"], expected_seg)
+                assert bool(got["end_flag"]) == bool(expected_end), \
+                    (cfg["strategy"], pose, "end_flag", got["end_flag"], expected_end)
             br.close()
+            print(f"\nparity: {len(cases)} cases passed (path + matched_seg + end_flag)")
     finally:
         proc.terminate(); proc.wait()

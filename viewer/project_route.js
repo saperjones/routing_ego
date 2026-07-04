@@ -7,6 +7,10 @@
     min_turn_radius_m: 5.0, corner_angle_deg: 10.0, simplify_eps_m: 0.20,
   };
 
+  // True modulo (always non-negative), matching Python/numpy % behaviour.
+  const TWO_PI = 2 * Math.PI;
+  const mod = (a, m) => ((a % m) + m) % m;
+
   function toBody(de, dn, yaw) {
     const c = Math.cos(yaw), s = Math.sin(yaw);
     return [de * c + dn * s, -de * s + dn * c];   // +x fwd, +y left
@@ -92,12 +96,12 @@
     let best = lo, bestD = Infinity, anyGated = false;
     for (let i = lo; i <= hi; i++) {
       const [ex, ny] = route.points[i], [tx, ty] = route.tangents[i];
-      let dy = Math.atan2(ty, tx) - yaw; dy = Math.abs(((dy + Math.PI) % (2 * Math.PI)) - Math.PI);
+      const dy = Math.abs(mod(Math.atan2(ty, tx) - yaw + Math.PI, TWO_PI) - Math.PI);
       if (dy <= gate) anyGated = true;
     }
     for (let i = lo; i <= hi; i++) {
       const [ex, ny] = route.points[i], [tx, ty] = route.tangents[i];
-      let dy = Math.atan2(ty, tx) - yaw; dy = Math.abs(((dy + Math.PI) % (2 * Math.PI)) - Math.PI);
+      const dy = Math.abs(mod(Math.atan2(ty, tx) - yaw + Math.PI, TWO_PI) - Math.PI);
       if (anyGated && dy > gate) continue;
       const d = (ex - pe) ** 2 + (ny - pn) ** 2;
       if (d < bestD) { bestD = d; best = i; }
@@ -143,7 +147,8 @@
   }
 
   // Build route {points,s,tangents,length,seg_of_index} from baked points_e/points_n(/s).
-  function buildRoute(points_e, points_n, s_opt) {
+  // waypoint_indices_opt: array of point indices marking segment boundaries (mirrors Route.__init__).
+  function buildRoute(points_e, points_n, s_opt, waypoint_indices_opt) {
     const points = points_e.map((e, i) => [e, points_n[i]]);
     let s = s_opt;
     if (!s) { s = [0]; for (let i = 1; i < points.length; i++)
@@ -152,7 +157,19 @@
       const a = points[Math.max(0, i - 1)], b = points[Math.min(points.length - 1, i + 1)];
       return unit(b[0] - a[0], b[1] - a[1]);
     });
-    return { points, s, tangents, length: s[s.length - 1] };
+    // Compute seg_of_index mirroring Python Route.__init__:
+    // seg k spans waypoint_indices[k]..waypoint_indices[k+1]; last waypoint onward -> last seg id.
+    let seg_of_index = null;
+    if (waypoint_indices_opt && waypoint_indices_opt.length >= 2) {
+      const wp = waypoint_indices_opt;
+      seg_of_index = new Int32Array(points.length);
+      for (let k = 0; k < wp.length - 1; k++) {
+        for (let i = wp[k]; i < wp[k + 1]; i++) seg_of_index[i] = k;
+      }
+      const lastSeg = wp.length - 2;
+      for (let i = wp[wp.length - 1]; i < points.length; i++) seg_of_index[i] = lastSeg;
+    }
+    return { points, s, tangents, length: s[s.length - 1], seg_of_index };
   }
 
   root.ProjectRoute = { DEFAULT_CONFIG, projectRoute, match, rdp, smoothCorners, resample,

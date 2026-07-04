@@ -1,6 +1,19 @@
 <!doctype html><html><head><meta charset="utf-8">
 <script src="/viewer/project_route.js"></script></head>
 <body><script>
-window.runCase = (route, pose, cfg) =>
-  window.ProjectRoute.projectRoute(route, pose, cfg, null);
+window.runCase = (route, pose, cfg) => {
+  // Reconstruct route object with seg_of_index if waypoint_indices is provided
+  const builtRoute = window.ProjectRoute.buildRoute(
+    route.points.map(p => p[0]),
+    route.points.map(p => p[1]),
+    route.s,
+    route.waypoint_indices || null
+  );
+  // If the prebaked route already carries seg_of_index as an array, use it directly
+  if (route.seg_of_index && !builtRoute.seg_of_index) {
+    builtRoute.seg_of_index = route.seg_of_index;
+  }
+  const result = window.ProjectRoute.projectRoute(builtRoute, pose, cfg, null);
+  return { path: result.path, matched_seg: result.matched_seg, end_flag: result.end_flag };
+};
 </script></body></html>
