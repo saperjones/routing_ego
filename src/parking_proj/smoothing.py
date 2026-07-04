@@ -119,6 +119,35 @@ def _clothoid_world(ax, ay, vx, vy, bx, by, min_radius, transition, delta, cross
     return None                                                    # doesn't fit -> caller uses arc
 
 
+def human_corners(pts, cut_gain, sigma, ds, eps, corner_angle_deg):
+    """Human-like corner-cutting: shift each sharp corner vertex toward the INSIDE
+    of the turn by cut_gain*(delta/(pi/2)), then Gaussian-smooth (anticipatory).
+    Mimics a driver taking a corner early and wide (cut calibrated from ego tracks)."""
+    if len(pts) < 3:
+        return resample(pts, ds)
+    verts = rdp(pts, eps)
+    if len(verts) < 3:
+        return _gaussian_smooth(resample(verts, ds), sigma, ds)
+    thresh = math.radians(corner_angle_deg)
+    out = [verts[0]]
+    for i in range(1, len(verts) - 1):
+        ax, ay = verts[i - 1]
+        vx, vy = verts[i]
+        bx, by = verts[i + 1]
+        d1x, d1y = _unit(vx - ax, vy - ay)
+        d2x, d2y = _unit(bx - vx, by - vy)
+        delta = math.acos(max(-1.0, min(1.0, d1x * d2x + d1y * d2y)))
+        ix, iy = d2x - d1x, d2y - d1y            # points to the inside of the turn
+        ni = math.hypot(ix, iy)
+        if delta >= thresh and ni > 1e-6:
+            dcut = cut_gain * (delta / (math.pi / 2.0))
+            vx += dcut * ix / ni
+            vy += dcut * iy / ni
+        out.append((vx, vy))
+    out.append(verts[-1])
+    return _gaussian_smooth(resample(out, ds), sigma, ds)
+
+
 def smooth_corners(pts, min_radius, corner_angle_deg, ds, eps,
                    corner_style="arc", transition=3.0):
     """Replace sharp corners with fillets. corner_style="arc" uses a circular arc

@@ -10,7 +10,7 @@ from dataclasses import dataclass
 import numpy as np
 from .transform import to_body_frame
 import bisect
-from .smoothing import smooth_corners
+from .smoothing import smooth_corners, human_corners
 
 SEARCH_AHEAD = 15.0
 
@@ -29,6 +29,7 @@ class ProjectConfig:
     simplify_eps_m: float = 0.20
     corner_style: str = "clothoid"       # "clothoid" | "arc"
     clothoid_transition_m: float = 4.0   # smooth default; human ego-track calibration was 1.5 m (docs/clothoid_calibration.md)
+    human_cut_m: float = 2.2             # "human" strategy: inside corner-cut at a 90° turn (m), calibrated from ego tracks
 
 
 @dataclass
@@ -109,10 +110,13 @@ class _SmoothedRoute:
                 self.pts[i][1] + t * (self.pts[i + 1][1] - self.pts[i][1]))
 
 
-def _get_smoothed(route, cfg):
-    """Build (and cache on the route) the once-smoothed world route for cfg."""
-    key = (cfg.corner_style, round(cfg.min_turn_radius_m, 4), round(cfg.clothoid_transition_m, 4),
-           round(cfg.corner_angle_deg, 4), round(cfg.simplify_eps_m, 4), round(cfg.sample_ds_m, 4))
+def _get_world(route, cfg):
+    """Build (and cache on the route) the world route transformed ONCE for cfg:
+    'smoothed' rounds corners (arc/clothoid/driver); 'human' cuts corners inside
+    (calibrated) then smooths — mimicking how a driver takes a corner early/wide."""
+    key = (cfg.strategy, cfg.corner_style, round(cfg.min_turn_radius_m, 4),
+           round(cfg.clothoid_transition_m, 4), round(cfg.corner_angle_deg, 4),
+           round(cfg.simplify_eps_m, 4), round(cfg.sample_ds_m, 4), round(cfg.human_cut_m, 4))
     cache = getattr(route, "_sm_cache", None)
     if cache is None:
         cache = {}
@@ -122,10 +126,14 @@ def _get_smoothed(route, cfg):
             pass
     sm = cache.get(key)
     if sm is None:
-        pts = smooth_corners([(float(p[0]), float(p[1])) for p in route.points],
-                             cfg.min_turn_radius_m, cfg.corner_angle_deg, cfg.sample_ds_m,
-                             cfg.simplify_eps_m, corner_style=cfg.corner_style,
-                             transition=cfg.clothoid_transition_m)
+        world = [(float(p[0]), float(p[1])) for p in route.points]
+        if cfg.strategy == "human":
+            pts = human_corners(world, cfg.human_cut_m, cfg.clothoid_transition_m,
+                                cfg.sample_ds_m, cfg.simplify_eps_m, cfg.corner_angle_deg)
+        else:
+            pts = smooth_corners(world, cfg.min_turn_radius_m, cfg.corner_angle_deg,
+                                 cfg.sample_ds_m, cfg.simplify_eps_m,
+                                 corner_style=cfg.corner_style, transition=cfg.clothoid_transition_m)
         sm = _SmoothedRoute(pts)
         cache[key] = sm
     return sm
@@ -134,10 +142,10 @@ def _get_smoothed(route, cfg):
 def project_route(route, pose_e, pose_n, yaw, config, state=None, speed=None):
     cfg = config
     cursor_s, matched_seg, lat_dev, end_flag = _match(route, pose_e, pose_n, yaw, cfg, state)
-    # "smoothed" samples the route smoothed ONCE in world space (stable corner);
-    # "raw"/"centered" sample the original route. cursor_s maps proportionally.
-    if cfg.strategy == "smoothed":
-        geom = _get_smoothed(route, cfg)
+    # "smoothed"/"human" sample a route transformed ONCE in world space (stable
+    # corner); "raw"/"centered" sample the original route. cursor_s maps proportionally.
+    if cfg.strategy in ("smoothed", "human"):
+        geom = _get_world(route, cfg)
         cs = cursor_s * (geom.length / route.length) if route.length > 1e-9 else cursor_s
     else:
         geom = route

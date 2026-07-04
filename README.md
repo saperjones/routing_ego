@@ -57,7 +57,10 @@ PORT=9000 ./run.sh  # override the port (default 8000)
   grid, route as a ribbon narrowing toward the vanishing point). Camera constants
   live in `PERSP` in `viewer.js`.
   - **Algorithm selector** — `Raw (keep offset)` / `Centered (no offset)` /
-    `Smoothed (drivable corners)` — maps to `ProjectConfig.strategy`. Raw keeps
+    `Smoothed (drivable corners)` / `Human-like (cuts corners)` — maps to
+    `ProjectConfig.strategy`. **Human-like** cuts each corner toward the inside
+    by a data-calibrated amount (`human_cut_m`, ≈2.2 m at 90°) then anticipatory-
+    smooths it, mimicking how a driver takes a corner early and wide. Raw keeps
     the lateral cross-track offset visible; Centered removes it (anchor at
     `y = 0`); Smoothed additionally replaces sharp corners with a smooth fillet
     (curvature ≤ 1/R_min on non-degenerate legs).

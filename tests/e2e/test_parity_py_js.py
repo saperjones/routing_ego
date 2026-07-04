@@ -57,7 +57,7 @@ def _fixtures():
             "waypoint_indices": r.waypoint_indices,
         }
         for (pe, pn, yaw) in poses:
-            for strat in ("raw", "centered", "smoothed"):
+            for strat in ("raw", "centered", "smoothed", "human"):
                 styles = ("arc", "clothoid", "driver") if strat == "smoothed" else ("clothoid",)
                 for style in styles:
                     cfg = ProjectConfig(strategy=strat, corner_style=style)

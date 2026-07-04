@@ -5,7 +5,7 @@
     strategy: "smoothed", behind_m: 5.0, ahead_m: 70.0, sample_ds_m: 0.5,
     search_ahead_m: 15.0, search_back_m: 0.3, heading_gate_deg: 60.0,
     min_turn_radius_m: 8.0, corner_angle_deg: 10.0, simplify_eps_m: 0.20,
-    corner_style: "clothoid", clothoid_transition_m: 4.0,
+    corner_style: "clothoid", clothoid_transition_m: 4.0, human_cut_m: 2.2,
   };
 
   // True modulo (always non-negative), matching Python/numpy % behaviour.
@@ -158,6 +158,30 @@
     return resample(out, ds);
   }
 
+  // Human-like: shift each sharp corner INSIDE by cutGain*(delta/(pi/2)), then
+  // Gaussian-smooth (anticipatory) — mimics a driver taking the corner early/wide.
+  function humanCorners(pts, cutGain, sigma, ds, eps, angleDeg) {
+    if (pts.length < 3) return resample(pts, ds);
+    const verts = rdp(pts, eps);
+    if (verts.length < 3) return gaussianSmooth(resample(verts, ds), sigma, ds);
+    const thresh = angleDeg * Math.PI / 180;
+    const out = [verts[0]];
+    for (let i = 1; i < verts.length - 1; i++) {
+      const [ax, ay] = verts[i - 1]; let [vx, vy] = verts[i]; const [bx, by] = verts[i + 1];
+      const [d1x, d1y] = unit(vx - ax, vy - ay), [d2x, d2y] = unit(bx - vx, by - vy);
+      let dot = d1x * d2x + d1y * d2y; dot = dot < -1 ? -1 : dot > 1 ? 1 : dot;
+      const delta = Math.acos(dot);
+      const ix = d2x - d1x, iy = d2y - d1y, ni = Math.hypot(ix, iy);
+      if (delta >= thresh && ni > 1e-6) {
+        const dcut = cutGain * (delta / (Math.PI / 2));
+        vx += dcut * ix / ni; vy += dcut * iy / ni;
+      }
+      out.push([vx, vy]);
+    }
+    out.push(verts[verts.length - 1]);
+    return gaussianSmooth(resample(out, ds), sigma, ds);
+  }
+
   function indexAtS(route, s) {
     const arr = route.s, L = route.length;
     if (s >= L) return arr.length - 1;
@@ -206,15 +230,17 @@
   // corner is stable frame-to-frame (re-windowed, not re-filleted).
   const _smCache = new WeakMap();
   function _smSig(cfg) {
-    return [cfg.corner_style, cfg.min_turn_radius_m, cfg.clothoid_transition_m,
-            cfg.corner_angle_deg, cfg.simplify_eps_m, cfg.sample_ds_m].join(",");
+    return [cfg.strategy, cfg.corner_style, cfg.min_turn_radius_m, cfg.clothoid_transition_m,
+            cfg.corner_angle_deg, cfg.simplify_eps_m, cfg.sample_ds_m, cfg.human_cut_m].join(",");
   }
   function getSmoothed(route, cfg) {
     const sig = _smSig(cfg), e = _smCache.get(route);
     if (e && e.sig === sig) return e.geom;
-    const pts = smoothCorners(route.points.map(p => [p[0], p[1]]), cfg.min_turn_radius_m,
-                              cfg.corner_angle_deg, cfg.sample_ds_m, cfg.simplify_eps_m,
-                              cfg.corner_style, cfg.clothoid_transition_m);
+    const world = route.points.map(p => [p[0], p[1]]);
+    const pts = cfg.strategy === "human"
+      ? humanCorners(world, cfg.human_cut_m, cfg.clothoid_transition_m, cfg.sample_ds_m, cfg.simplify_eps_m, cfg.corner_angle_deg)
+      : smoothCorners(world, cfg.min_turn_radius_m, cfg.corner_angle_deg, cfg.sample_ds_m, cfg.simplify_eps_m,
+                      cfg.corner_style, cfg.clothoid_transition_m);
     const s = [0];
     for (let i = 1; i < pts.length; i++) s.push(s[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]));
     const geom = { pts, s, length: s[s.length - 1] || 0 };
@@ -235,7 +261,7 @@
   function projectRoute(route, pose, cfg, state) {
     const m = match(route, pose.e, pose.n, pose.h, cfg, state);
     let geom, cs, sampleAt;
-    if (cfg.strategy === "smoothed") {
+    if (cfg.strategy === "smoothed" || cfg.strategy === "human") {
       geom = getSmoothed(route, cfg);
       cs = route.length > 1e-9 ? m.cursor_s * (geom.length / route.length) : m.cursor_s;
       sampleAt = (s) => smPointAtS(geom, s);
