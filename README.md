@@ -119,12 +119,6 @@ on the later pass the cursor has already advanced past the intervening waypoints
 The heading gate is a backstop. No pose/heading smoothing is done anywhere in the
 algorithm — an upstream module is assumed to own that.
 
-**Self-crossing routes** (the "又"/X case) are resolved by construction: on the
-first pass through a crossing the other stroke is far outside the forward
-window; on the later pass the cursor has already advanced past the intervening
-waypoints. The heading gate is a backstop. No pose/heading smoothing is done
-anywhere in the algorithm — an upstream module is assumed to own that.
-
 ### The simulation (`src/parking_proj/simulate.py`)
 
 Two layers over the planned centerline:
