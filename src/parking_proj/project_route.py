@@ -9,6 +9,7 @@ import math
 from dataclasses import dataclass
 import numpy as np
 from .transform import to_body_frame
+import bisect
 from .smoothing import smooth_corners
 
 SEARCH_AHEAD = 15.0
@@ -23,11 +24,11 @@ class ProjectConfig:
     search_ahead_m: float = SEARCH_AHEAD
     search_back_m: float = 0.3
     heading_gate_deg: float = 60.0
-    min_turn_radius_m: float = 5.0
+    min_turn_radius_m: float = 8.0       # corner radius used for smoothing (m)
     corner_angle_deg: float = 10.0
     simplify_eps_m: float = 0.20
     corner_style: str = "clothoid"       # "clothoid" | "arc"
-    clothoid_transition_m: float = 1.5   # calibrated default (see docs/clothoid_calibration.md)
+    clothoid_transition_m: float = 4.0   # smooth default; human ego-track calibration was 1.5 m (docs/clothoid_calibration.md)
 
 
 @dataclass
@@ -82,28 +83,78 @@ def _match(route, pose_e, pose_n, yaw, cfg, state):
     return cursor_s, matched_seg, lat_dev, end_flag
 
 
+class _SmoothedRoute:
+    """A world-frame polyline (the planned route with its corners pre-smoothed
+    once) with arc-length lookup. Sampling this fixed curve each frame keeps the
+    corner stable instead of re-filleting a sliding window (which jitters)."""
+    __slots__ = ("pts", "s", "length")
+
+    def __init__(self, pts):
+        self.pts = pts
+        acc = [0.0]
+        for i in range(1, len(pts)):
+            acc.append(acc[-1] + math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]))
+        self.s = acc
+        self.length = acc[-1] if len(acc) > 1 else 0.0
+
+    def point_at_s(self, s):
+        if s <= 0.0 or len(self.pts) < 2:
+            return self.pts[0]
+        if s >= self.length:
+            return self.pts[-1]
+        i = min(bisect.bisect_right(self.s, s) - 1, len(self.pts) - 2)
+        seg = self.s[i + 1] - self.s[i]
+        t = 0.0 if seg < 1e-12 else (s - self.s[i]) / seg
+        return (self.pts[i][0] + t * (self.pts[i + 1][0] - self.pts[i][0]),
+                self.pts[i][1] + t * (self.pts[i + 1][1] - self.pts[i][1]))
+
+
+def _get_smoothed(route, cfg):
+    """Build (and cache on the route) the once-smoothed world route for cfg."""
+    key = (cfg.corner_style, round(cfg.min_turn_radius_m, 4), round(cfg.clothoid_transition_m, 4),
+           round(cfg.corner_angle_deg, 4), round(cfg.simplify_eps_m, 4), round(cfg.sample_ds_m, 4))
+    cache = getattr(route, "_sm_cache", None)
+    if cache is None:
+        cache = {}
+        try:
+            route._sm_cache = cache
+        except AttributeError:
+            pass
+    sm = cache.get(key)
+    if sm is None:
+        pts = smooth_corners([(float(p[0]), float(p[1])) for p in route.points],
+                             cfg.min_turn_radius_m, cfg.corner_angle_deg, cfg.sample_ds_m,
+                             cfg.simplify_eps_m, corner_style=cfg.corner_style,
+                             transition=cfg.clothoid_transition_m)
+        sm = _SmoothedRoute(pts)
+        cache[key] = sm
+    return sm
+
+
 def project_route(route, pose_e, pose_n, yaw, config, state=None, speed=None):
     cfg = config
     cursor_s, matched_seg, lat_dev, end_flag = _match(route, pose_e, pose_n, yaw, cfg, state)
-    ax, ay = route.point_at_s(cursor_s)
+    # "smoothed" samples the route smoothed ONCE in world space (stable corner);
+    # "raw"/"centered" sample the original route. cursor_s maps proportionally.
+    if cfg.strategy == "smoothed":
+        geom = _get_smoothed(route, cfg)
+        cs = cursor_s * (geom.length / route.length) if route.length > 1e-9 else cursor_s
+    else:
+        geom = route
+        cs = cursor_s
+    ax, ay = geom.point_at_s(cs)
     _, lat_shift = to_body_frame(ax - pose_e, ay - pose_n, yaw)   # car-frame lateral of anchor
-    lo = max(cursor_s - cfg.behind_m, 0.0)
-    hi = min(cursor_s + cfg.ahead_m, route.length)
+    lo = max(cs - cfg.behind_m, 0.0)
+    hi = min(cs + cfg.ahead_m, geom.length)
     n = int((hi - lo) / cfg.sample_ds_m) + 1
-    behind_pts, fwd_pts = [], []
+    path = []
     for k in range(n):
         s = lo + k * cfg.sample_ds_m
-        qx, qy = route.point_at_s(s)
+        qx, qy = geom.point_at_s(s)
         bx, by = to_body_frame(qx - pose_e, qy - pose_n, yaw)
         if cfg.strategy != "raw":
             by -= lat_shift
-        (behind_pts if s < cursor_s else fwd_pts).append((bx, by))
-    if cfg.strategy == "smoothed" and len(fwd_pts) >= 3:
-        fwd_pts = smooth_corners(fwd_pts, cfg.min_turn_radius_m, cfg.corner_angle_deg,
-                                 cfg.sample_ds_m, cfg.simplify_eps_m,
-                                 corner_style=cfg.corner_style,
-                                 transition=cfg.clothoid_transition_m)
-    path = [[x, y] for x, y in (behind_pts + fwd_pts)]
+        path.append([bx, by])
     return ProjectOutput(path=path, cursor_s=cursor_s, lat_dev=lat_dev,
                          matched_seg=matched_seg, end_flag=end_flag,
                          state=ProjectState(cursor_s=cursor_s, initialized=True))

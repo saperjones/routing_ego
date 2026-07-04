@@ -50,7 +50,9 @@ PORT=9000 ./run.sh  # override the port (default 8000)
 - **Center top — BEV (top-down):** the planned route plus the car's actual
   driven trajectory and an oriented car marker.
 - **Center bottom — Driver view (`+x` up, `+y` left):** the body-frame path
-  computed live by `ProjectRoute.projectRoute` each frame. Tick the
+  computed live by `ProjectRoute.projectRoute` each frame, with the **real driven
+  trajectory overlaid (orange dashed)** for comparison. The `smoothed` corner is
+  smoothed once in world space, so it stays stable (no per-frame jump). Tick the
   **perspective** checkbox to switch into a windshield 3D view (horizon, ground
   grid, route as a ribbon narrowing toward the vanishing point). Camera constants
   live in `PERSP` in `viewer.js`.
@@ -62,8 +64,9 @@ PORT=9000 ./run.sh  # override the port (default 8000)
   - **Corner-style selector** (`#corner-style`; only affects the Smoothed strategy)
     — `arc` (circular-arc fillet, constant curvature) or `clothoid` (**default**,
     Euler spiral with curvature ramping linearly 0→1/R→0, no entry/exit snap).
-    The `clothoid_transition_m = 1.5 m` transition length was calibrated from
-    human-driven ego tracks in parking lots (see `docs/clothoid_calibration.md`).
+    The `clothoid_transition_m` default is **4.0 m** for a smooth feel (the
+    human ego-track calibration measured 1.5 m; see `docs/clothoid_calibration.md`).
+    `R_min` defaults to **8 m**. Both are set for smoothness out-of-the-box.
   - **Transition slider** (`#p-transition`, 0.5–8 m) — controls the clothoid
     spiral length; shorter gives a tighter entry ramp, longer gives a more gradual
     curvature build-up. Falls back to an arc for corners where the legs are too
@@ -117,7 +120,7 @@ path is processed by `smooth_corners` in `smoothing.py`:
      effective radius `R_eff = T / tan(δ/2)`. Curvature jumps from 0 to `1/R` at
      the tangent point.
    - `"clothoid"` — Euler spiral with linear curvature ramp 0→1/R over
-     `clothoid_transition_m` (default 1.5 m, data-calibrated), an optional
+     `clothoid_transition_m` (default 4.0 m; calibration measured 1.5 m), an optional
      constant-curvature arc, then 1/R→0. No curvature discontinuity at entry or
      exit. Falls back to an arc for tight corners where the legs are too short.
    For non-degenerate legs, peak curvature `κ ≤ 1/R_min`. The behind-stub is

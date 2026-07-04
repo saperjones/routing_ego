@@ -1,5 +1,8 @@
 # Design Spec: Parking Navigation Route Projection Algorithm
 
+> **Update 2026-07-04 (smoothing):** the `smoothed` strategy now smooths the route **once in world space** (cached) and re-windows that fixed curve each frame, so the corner no longer jitters frame-to-frame. Defaults raised for a smooth-by-default feel: `min_turn_radius_m = 8.0`, `clothoid_transition_m = 4.0` (calibration measured 1.5 m). The driver view overlays the real driven trajectory for comparison.
+
+
 **Status:** finalized (requirements + hardened design + confirmed tests)
 **Deliverables:** Python projection algorithm + simulation harness + static HTML visualization tool
 **Implementation handoff:** `superpowers:writing-plans` (this spec contains no implementation code)

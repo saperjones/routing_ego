@@ -1,5 +1,8 @@
 # Algorithm Description — Parking Route Projection
 
+> **Update 2026-07-04:** smoothing is applied **once in world space** to the whole route (not per-frame on the body-frame window), giving a temporally stable corner; shipped defaults `min_turn_radius_m = 8.0`, `clothoid_transition_m = 4.0` (calibration value 1.5 m).
+
+
 This document describes the **mathematics** of the implemented system: the
 coordinate transforms, the route parameterization, the stateful matching
 algorithm, the self-crossing guarantee, the simulation noise model, and the

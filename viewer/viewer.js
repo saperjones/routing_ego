@@ -377,6 +377,23 @@ function drawDriver() {
   const ppm = (h - 20) / (aheadLive + behindLive);
   const toX = (by) => w / 2 - by * ppm;
   const toY = (bx) => h - 10 - (bx + behindLive) * ppm;
+  // overlay: the real driven trajectory (ego track) in the current body frame,
+  // so the generated guidance path (green) can be compared against reality (orange).
+  const cur = f.meas_pose;
+  ctx.strokeStyle = "rgba(230,140,0,0.9)"; ctx.lineWidth = 2; ctx.setLineDash([5, 4]);
+  ctx.beginPath();
+  let prevb = null;
+  for (let i = 0; i < c.frames.length; i++) {
+    const g = c.frames[i].meas_pose; if (!g) continue;
+    const b = worldToBody(cur.e, cur.n, g.e, g.n, cur.h);
+    if (b.x < -behindLive || b.x > aheadLive) { prevb = null; continue; }
+    const x = toX(b.y), y = toY(b.x);
+    if (!prevb || Math.hypot(b.x - prevb.x, b.y - prevb.y) > 3.0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+    prevb = b;
+  }
+  ctx.stroke(); ctx.setLineDash([]);
+
   const pts = computeBodyPath(c, STATE.frame);
   ctx.strokeStyle = "#2e9e5b"; ctx.lineWidth = 3; ctx.beginPath();
   pts.forEach((b, i) => {
@@ -387,9 +404,13 @@ function drawDriver() {
   // car at origin (width=1.8m, height=3.6m, centered)
   ctx.fillStyle = "#cc3a3a";
   ctx.fillRect(toX(0.9), toY(1.8), 1.8 * ppm, 3.6 * ppm);
+  // legend
+  ctx.font = "11px sans-serif";
+  ctx.fillStyle = "#2e9e5b"; ctx.fillText("— generated", 8, 16);
+  ctx.fillStyle = "rgba(230,140,0,0.95)"; ctx.fillText("- - real trajectory", 8, 30);
   if (f.end_flag) {
     ctx.fillStyle = "#cc3a3a"; ctx.font = "12px sans-serif";
-    ctx.fillText("route ends", 8, 16);
+    ctx.fillText("route ends", 8, 44);
   }
 }
 

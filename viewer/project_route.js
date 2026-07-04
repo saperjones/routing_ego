@@ -4,8 +4,8 @@
   const DEFAULT_CONFIG = {
     strategy: "smoothed", behind_m: 5.0, ahead_m: 70.0, sample_ds_m: 0.5,
     search_ahead_m: 15.0, search_back_m: 0.3, heading_gate_deg: 60.0,
-    min_turn_radius_m: 5.0, corner_angle_deg: 10.0, simplify_eps_m: 0.20,
-    corner_style: "clothoid", clothoid_transition_m: 1.5,
+    min_turn_radius_m: 8.0, corner_angle_deg: 10.0, simplify_eps_m: 0.20,
+    corner_style: "clothoid", clothoid_transition_m: 4.0,
   };
 
   // True modulo (always non-negative), matching Python/numpy % behaviour.
@@ -181,24 +181,59 @@
              lat_dev: latDev, end_flag: (cursor + cfg.ahead_m) >= route.length - 1e-9 };
   }
 
+  // The route smoothed ONCE in world space, cached per route+config, so the
+  // corner is stable frame-to-frame (re-windowed, not re-filleted).
+  const _smCache = new WeakMap();
+  function _smSig(cfg) {
+    return [cfg.corner_style, cfg.min_turn_radius_m, cfg.clothoid_transition_m,
+            cfg.corner_angle_deg, cfg.simplify_eps_m, cfg.sample_ds_m].join(",");
+  }
+  function getSmoothed(route, cfg) {
+    const sig = _smSig(cfg), e = _smCache.get(route);
+    if (e && e.sig === sig) return e.geom;
+    const pts = smoothCorners(route.points.map(p => [p[0], p[1]]), cfg.min_turn_radius_m,
+                              cfg.corner_angle_deg, cfg.sample_ds_m, cfg.simplify_eps_m,
+                              cfg.corner_style, cfg.clothoid_transition_m);
+    const s = [0];
+    for (let i = 1; i < pts.length; i++) s.push(s[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]));
+    const geom = { pts, s, length: s[s.length - 1] || 0 };
+    _smCache.set(route, { sig, geom });
+    return geom;
+  }
+  function smPointAtS(geom, s) {
+    if (s <= 0 || geom.pts.length < 2) return geom.pts[0];
+    if (s >= geom.length) return geom.pts[geom.pts.length - 1];
+    let lo = 0, hi = geom.s.length;
+    while (lo < hi) { const m = (lo + hi) >> 1; if (geom.s[m] <= s) lo = m + 1; else hi = m; }
+    const i = Math.max(0, Math.min(lo - 1, geom.pts.length - 2));
+    const seg = geom.s[i + 1] - geom.s[i], t = seg < 1e-12 ? 0 : (s - geom.s[i]) / seg;
+    return [geom.pts[i][0] + t * (geom.pts[i + 1][0] - geom.pts[i][0]),
+            geom.pts[i][1] + t * (geom.pts[i + 1][1] - geom.pts[i][1])];
+  }
+
   function projectRoute(route, pose, cfg, state) {
     const m = match(route, pose.e, pose.n, pose.h, cfg, state);
-    const [ax, ay] = pointAtS(route, m.cursor_s);
+    let geom, cs, sampleAt;
+    if (cfg.strategy === "smoothed") {
+      geom = getSmoothed(route, cfg);
+      cs = route.length > 1e-9 ? m.cursor_s * (geom.length / route.length) : m.cursor_s;
+      sampleAt = (s) => smPointAtS(geom, s);
+    } else {
+      geom = route; cs = m.cursor_s;
+      sampleAt = (s) => pointAtS(route, s);
+    }
+    const [ax, ay] = sampleAt(cs);
     const latShift = toBody(ax - pose.e, ay - pose.n, pose.h)[1];
-    const lo = Math.max(m.cursor_s - cfg.behind_m, 0), hi = Math.min(m.cursor_s + cfg.ahead_m, route.length);
+    const lo = Math.max(cs - cfg.behind_m, 0), hi = Math.min(cs + cfg.ahead_m, geom.length);
     const n = Math.floor((hi - lo) / cfg.sample_ds_m) + 1;
-    const behind = [], fwd = [];
+    const path = [];
     for (let k = 0; k < n; k++) {
-      const s = lo + k * cfg.sample_ds_m, [qx, qy] = pointAtS(route, s);
+      const s = lo + k * cfg.sample_ds_m, [qx, qy] = sampleAt(s);
       let [bx, by] = toBody(qx - pose.e, qy - pose.n, pose.h);
       if (cfg.strategy !== "raw") by -= latShift;
-      (s < m.cursor_s ? behind : fwd).push([bx, by]);
+      path.push([bx, by]);
     }
-    let f = fwd;
-    if (cfg.strategy === "smoothed" && fwd.length >= 3)
-      f = smoothCorners(fwd, cfg.min_turn_radius_m, cfg.corner_angle_deg, cfg.sample_ds_m, cfg.simplify_eps_m,
-                        cfg.corner_style, cfg.clothoid_transition_m);
-    return { path: behind.concat(f), cursor_s: m.cursor_s, lat_dev: m.lat_dev,
+    return { path, cursor_s: m.cursor_s, lat_dev: m.lat_dev,
              matched_seg: m.matched_seg, end_flag: m.end_flag,
              state: { cursor_s: m.cursor_s, initialized: true } };
   }

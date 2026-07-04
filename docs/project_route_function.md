@@ -68,14 +68,28 @@ class ProjectConfig:
     search_ahead_m: float = 15.0     # forward search window for matching (m)
     search_back_m: float = 0.3       # back-tolerance for matching (m)
     heading_gate_deg: float = 60.0   # heading-agreement gate (degrees)
-    min_turn_radius_m: float = 5.0   # arc-fillet minimum radius (m); "smoothed" only
+    min_turn_radius_m: float = 8.0   # corner radius used for smoothing (m); "smoothed" only
     corner_angle_deg: float = 10.0   # minimum corner angle to fillet (degrees); "smoothed" only
     simplify_eps_m: float = 0.20     # RDP simplification tolerance (m); "smoothed" only
     corner_style: str = "clothoid"   # "arc" | "clothoid"; "smoothed" only
-    clothoid_transition_m: float = 1.5  # clothoid spiral transition length (m); "smoothed"+"clothoid" only
+    clothoid_transition_m: float = 4.0  # clothoid spiral transition length (m); "smoothed"+"clothoid" only
 ```
 
 `SEARCH_AHEAD = 15.0` is the module-level default, matched by `search_ahead_m`.
+
+**Smooth-by-default (updated 2026-07-04).** The defaults `min_turn_radius_m = 8.0`
+and `clothoid_transition_m = 4.0` are chosen so corners look smooth without any
+tuning (they engage on 100% of the real planned-route legs, which are ≥ 21 m).
+The human ego-track calibration (`docs/clothoid_calibration.md`) measured a 1.5 m
+entry ramp; the shipped default transition is raised to 4.0 m for a gentler feel.
+Both remain live sliders.
+
+**Corner is smoothed ONCE in world space (no per-frame jump).** For the
+`"smoothed"` strategy the whole route is smoothed one time in the world frame and
+cached (`_get_smoothed`); each frame re-windows and re-projects that fixed curve
+rather than re-filleting a sliding window — so the corner shape is stable
+frame-to-frame instead of jittering. `raw`/`centered` sample the original route
+unchanged. Matching (`cursor_s`) is unchanged, so grading is unaffected.
 
 ---
 
