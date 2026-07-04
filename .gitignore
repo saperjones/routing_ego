@@ -4,3 +4,5 @@ __pycache__/
 out/
 .venv/
 .claude/
+dataset/
+.DS_Store

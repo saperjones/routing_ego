@@ -2,7 +2,7 @@
 import json
 import os
 from .simulate import simulate, SimConfig
-from .projection import Projector, follow_path, FOLLOW_AHEAD, FOLLOW_DS
+from .projection import Projector
 from .scenarios import build_scenarios
 from . import grade as grading
 
@@ -26,10 +26,6 @@ def build_case_dict(scenario) -> dict:
 
     frame_dicts = []
     for f, r in zip(frames, results):
-        if r is None:
-            fp, lat_shift = None, None
-        else:
-            fp, lat_shift = follow_path(route, f.meas_e, f.meas_n, f.meas_yaw, r.cursor_s)
         frame_dicts.append({
             "t": round(f.t, 3),
             "speed": round(f.speed, 3),
@@ -43,8 +39,6 @@ def build_case_dict(scenario) -> dict:
             "est_lat_dev": None if r is None else round(r.est_lat_dev, 4),
             "true_lat_dev": round(grading.true_lat_dev(route, f), 4),
             "end_flag": None if r is None else bool(r.end_flag),
-            "follow_path": None if fp is None else [[round(x, 3), round(y, 3)] for x, y in fp],
-            "lat_shift": None if lat_shift is None else round(lat_shift, 4),
             "gt_seg": f.gt_seg,
             "gt_s": round(f.gt_s, 3),
         })
@@ -60,8 +54,7 @@ def build_case_dict(scenario) -> dict:
             "waypoint_indices": route.waypoint_indices,
             "waypoint_labels": route.waypoint_labels,
         },
-        "config": {"ahead": proj.ahead, "behind": proj.behind,
-                   "follow_ahead": FOLLOW_AHEAD, "follow_ds": FOLLOW_DS},
+        "config": {"ahead": proj.ahead, "behind": proj.behind},
         "frames": frame_dicts,
         "verdict": verdict,
     }
