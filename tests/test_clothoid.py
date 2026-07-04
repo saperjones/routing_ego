@@ -45,6 +45,32 @@ def test_peak_curvature_within_min_radius():
     assert max(per_step) <= ds / 5.0 + 0.005
 
 
+def test_shortened_spiral_small_angle():
+    # delta=20° < 2*theta_sp = 2*(3/(2*5))=0.6 rad, so no middle arc (shortened-spiral branch)
+    delta = math.radians(20)
+    radius = 5.0
+    transition = 3.0
+    internal_ds = 0.1
+    pts, T = clothoid_corner(delta, radius=radius, transition=transition, internal_ds=internal_ds)
+
+    def wrap(x):
+        return ((x + math.pi) % (2 * math.pi)) - math.pi
+
+    # 1. corner turns by ~delta
+    dx, dy = pts[-1][0] - pts[-2][0], pts[-1][1] - pts[-2][1]
+    assert math.atan2(dy, dx) == pytest_approx(delta, abs=0.03)
+
+    # 2. peak curvature bounded: max per-step bearing change <= ds/radius + 0.005
+    bearings = _turn_rates(pts)
+    per_step = [abs(wrap(bearings[i] - bearings[i-1])) for i in range(1, len(bearings))]
+    assert max(per_step) <= internal_ds / radius + 0.005
+
+    # 3. curvature continuous: max 2nd-difference < 0.005
+    turn_rate = [wrap(bearings[i] - bearings[i-1]) for i in range(1, len(bearings))]
+    jumps = [abs(wrap(turn_rate[i] - turn_rate[i-1])) for i in range(1, len(turn_rate))]
+    assert max(jumps) < 0.005
+
+
 def test_degenerate_inputs_return_trivial():
     assert clothoid_corner(0.0, 5.0, 3.0)[0] == [(0.0, 0.0)]
     assert clothoid_corner(math.radians(90), 5.0, 0.0)[0] == [(0.0, 0.0)]
