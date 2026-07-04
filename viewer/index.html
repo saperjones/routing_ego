@@ -33,6 +33,12 @@
         <label>behind <input type="range" id="p-behind" min="0" max="10" step="1" value="5"><span id="p-behind-v">5</span> m</label>
         <label>ahead <input type="range" id="p-ahead" min="20" max="100" step="5" value="70"><span id="p-ahead-v">70</span> m</label>
         <label>corner° <input type="range" id="p-corner" min="5" max="45" step="5" value="10"><span id="p-corner-v">10</span>°</label>
+        <label>corner
+          <select id="corner-style">
+            <option value="clothoid" selected>clothoid</option>
+            <option value="arc">arc</option>
+          </select></label>
+        <label>transition <input type="range" id="p-transition" min="0.5" max="8" step="0.5" value="3"><span id="p-transition-v">3.0</span> m</label>
       </div></h3>
       <canvas id="driver" width="560" height="300"></canvas></div>
     <div id="controls">

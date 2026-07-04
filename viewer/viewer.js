@@ -297,6 +297,8 @@ function currentConfig() {
     behind_m: parseFloat(document.getElementById("p-behind").value),
     ahead_m: parseFloat(document.getElementById("p-ahead").value),
     corner_angle_deg: parseFloat(document.getElementById("p-corner").value),
+    corner_style: document.getElementById("corner-style").value,
+    clothoid_transition_m: parseFloat(document.getElementById("p-transition").value),
   });
 }
 
@@ -557,7 +559,8 @@ window.addEventListener("DOMContentLoaded", () => {
   document.getElementById("speed").onchange = (ev) => { STATE.speed = parseFloat(ev.target.value); };
   document.getElementById("persp-toggle").onchange = () => renderFrame();
   document.getElementById("algo-select").onchange = () => renderFrame();
-  for (const id of ["p-radius", "p-behind", "p-ahead", "p-corner"]) {
+  document.getElementById("corner-style").onchange = () => renderFrame();
+  for (const id of ["p-radius", "p-behind", "p-ahead", "p-corner", "p-transition"]) {
     document.getElementById(id).oninput = (ev) => {
       const v = ev.target.value;
       document.getElementById(id + "-v").textContent = v;
