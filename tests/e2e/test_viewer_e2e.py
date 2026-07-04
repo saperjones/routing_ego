@@ -146,6 +146,13 @@ def _select(page, case_name):
         page.click("#tab-sim")
         page.wait_for_selector("#case-list li.group-header")
     page.locator("#case-list li", has_text=case_name).first.click()
+    # Wait for the async loadCase() fetch to complete so STATE.case reflects the
+    # new selection before any subsequent scrubber/slider manipulation.
+    escaped = case_name.replace("'", "\\'")
+    page.wait_for_function(
+        f"() => typeof STATE !== 'undefined' && STATE.case && STATE.case.name === '{escaped}'",
+        timeout=8000,
+    )
     page.wait_for_function(_NONBLANK, arg="#driver", timeout=6000)
     page.wait_for_function(_NONBLANK, arg="#bev", timeout=6000)
 
@@ -295,76 +302,58 @@ def test_real_case_renders_bev_and_drives(viewer):
     assert page.inner_text("#tm-frame") != before
 
 
-def test_recenter_toggle_default_and_changes_view(viewer):
+def test_algo_selector_switches_driver_view(viewer):
     page, _ = viewer
-    page.click("#tab-sim")
     _select(page, "X-crossing (high)")
-    # move into the run so a lateral offset is present
-    page.eval_on_selector(
-        "#scrubber",
-        "el => { el.value = Math.floor(el.max/2); el.dispatchEvent(new Event('input')); }",
-    )
-    assert page.is_checked("#recenter-toggle")            # default ON
-    sig_on = page.evaluate(_SIGNATURE, "#driver")
-    page.uncheck("#recenter-toggle")
-    page.wait_for_timeout(100)
-    sig_off = page.evaluate(_SIGNATURE, "#driver")
-    assert sig_on != sig_off, "recenter toggle did not change the driver view"
-    page.check("#recenter-toggle")
-    page.click("#tab-real")
+    page.select_option("#algo-select", "centered")
+    page.wait_for_timeout(80)
+    sig_c = page.evaluate(_SIGNATURE, "#driver")
+    page.select_option("#algo-select", "raw")
+    page.wait_for_timeout(80)
+    sig_r = page.evaluate(_SIGNATURE, "#driver")
+    assert sig_c != sig_r, "raw vs centered should differ when offset is present"
+    page.select_option("#algo-select", "smoothed")
 
 
-def test_recenter_centers_route_ahead(viewer):
-    """Web-effect test: with 'remove lateral offset' ON, the planned route
-    renders directly ahead of the car (near canvas centre) in the top-down
-    driver view; OFF, it is displaced sideways by the lateral offset. The two
-    renders differ horizontally by exactly lat_shift * pixels-per-metre, which
-    is the concrete pixel proof that the offset was nulled."""
+def test_smoothed_rounds_sharp_corner(viewer):
     page, _ = viewer
-    page.click("#tab-sim")
-    # a straight route with high RTK error: large lateral offset, no crossings
-    # or corners (where the 70 m follow_path could fold back into a forward band)
-    _select(page, "Straight (high)")
-    # top-down mode, toggle on (module-scoped fixture: don't trust prior state)
-    if page.is_checked("#persp-toggle"):
-        page.uncheck("#persp-toggle")
-    if not page.is_checked("#recenter-toggle"):
-        page.check("#recenter-toggle")
-    # seek to the frame with the largest lateral offset so the effect is clear
-    frame = page.evaluate(
-        "() => { const f = STATE.case.frames; let bi = 0, bv = 0;"
-        " for (let i = 0; i < f.length; i++) { const v = Math.abs(f[i].lat_shift || 0);"
-        " if (v > bv) { bv = v; bi = i; } } return bi; }"
-    )
-    page.eval_on_selector(
-        "#scrubber",
-        f"el => {{ el.value = {frame}; el.dispatchEvent(new Event('input')); }}",
-    )
-    page.wait_for_timeout(50)
-    lat_shift = page.evaluate(f"() => STATE.case.frames[{frame}].lat_shift")
-    assert abs(lat_shift) > 0.3, f"need a meaningful offset to test, got {lat_shift}"
+    _select(page, "Near-90 corner (low)")            # near-90 deg scenario (group C)
+    # a frame with the corner in the look-ahead
+    page.eval_on_selector("#scrubber",
+        "el => { el.value = Math.floor(el.max*0.15); el.dispatchEvent(new Event('input')); }")
+    def max_heading_step(strategy):
+        page.select_option("#algo-select", strategy)
+        page.wait_for_timeout(80)
+        return page.evaluate("""() => {
+          const c = STATE.case, f = STATE.frame;
+          const p = computeBodyPath(c, f).filter(q => q.x >= 0);
+          let m = 0;
+          for (let i = 2; i < p.length; i++) {
+            const a = Math.atan2(p[i-1].y-p[i-2].y, p[i-1].x-p[i-2].x);
+            const b = Math.atan2(p[i].y-p[i-1].y, p[i].x-p[i-1].x);
+            m = Math.max(m, Math.abs(((b-a+Math.PI)%(2*Math.PI))-Math.PI));
+          }
+          return m;
+        }""")
+    sharp = max_heading_step("centered")
+    smooth = max_heading_step("smoothed")
+    assert sharp > 0.5, sharp                # centered keeps the sharp corner
+    assert smooth < sharp * 0.6, (sharp, smooth)   # smoothed clearly rounds it
 
-    ppm = (300 - 20) / (20 - (-5))          # driver-view pixels per metre (h, ahead, behind)
-    center = 560 / 2                        # canvas width / 2
-    band = ["#driver", 144, 201]           # ~3-8 m ahead: clear of the car marker, route visible
 
-    on = page.evaluate(_ROUTE_MEAN_X, band)
-    page.uncheck("#recenter-toggle")
-    page.wait_for_timeout(50)
-    off = page.evaluate(_ROUTE_MEAN_X, band)
-    page.check("#recenter-toggle")
-    page.click("#tab-real")
-
-    assert on["n"] > 5 and off["n"] > 5, (on, off)     # route actually present in the band
-    # ON renders the route directly ahead of the car (near the centreline)...
-    assert abs(on["mean"] - center) < 10, {"on": on["mean"], "center": center}
-    # ...and much nearer centre than OFF, which is displaced by the offset
-    assert abs(on["mean"] - center) < abs(off["mean"] - center), \
-        {"on": on["mean"], "off": off["mean"], "center": center}
-    # x_on - x_off == lat_shift * ppm  (a pure horizontal shift by the offset)
-    expected = lat_shift * ppm
-    assert abs((on["mean"] - off["mean"]) - expected) < 12, \
-        {"on": on["mean"], "off": off["mean"], "expected": expected, "lat_shift": lat_shift}
+def test_radius_slider_widens_arc(viewer):
+    page, _ = viewer
+    _select(page, "Near-90 corner (low)")
+    page.eval_on_selector("#scrubber",
+        "el => { el.value = Math.floor(el.max*0.15); el.dispatchEvent(new Event('input')); }")
+    page.select_option("#algo-select", "smoothed")
+    page.eval_on_selector("#p-radius", "el => { el.value = 4; el.dispatchEvent(new Event('input')); }")
+    page.wait_for_timeout(80)
+    sig4 = page.evaluate(_SIGNATURE, "#driver")
+    page.eval_on_selector("#p-radius", "el => { el.value = 10; el.dispatchEvent(new Event('input')); }")
+    page.wait_for_timeout(80)
+    sig10 = page.evaluate(_SIGNATURE, "#driver")
+    assert sig4 != sig10, "changing min turning radius must change the smoothed path"
 
 
 def test_tab_switch_to_simulation_works(viewer):
