@@ -71,15 +71,19 @@ def test_corner_style_default_is_clothoid_and_arc_selectable():
     from parking_proj.project_route import ProjectConfig
     assert ProjectConfig().corner_style == "clothoid"
     r = l_route()
-    import math
-    def max_rate_jump(path):
-        rates = [math.atan2(path[i][1]-path[i-1][1], path[i][0]-path[i-1][0]) for i in range(1, len(path))]
-        return max(abs((rates[i]-rates[i-1]+math.pi) % (2*math.pi) - math.pi)
-                   for i in range(1, len(rates)))
-    # Use min_turn_radius_m=2.5 so clothoid tangent (~3.8 m) fits in 15 m half-leg,
-    # and with clothoid_transition_m=1.5 the peak section is shorter than the arc.
-    clo = project_route(r, 0.0, 0.0, 0.0, ProjectConfig(strategy="smoothed", corner_style="clothoid",
-                                                          min_turn_radius_m=2.5)).path
-    arc = project_route(r, 0.0, 0.0, 0.0, ProjectConfig(strategy="smoothed", corner_style="arc",
-                                                          min_turn_radius_m=2.5)).path
-    assert max_rate_jump(clo) < max_rate_jump(arc)
+
+    def curvature_jump(path):
+        rates = [math.atan2(path[i][1] - path[i-1][1], path[i][0] - path[i-1][0])
+                 for i in range(1, len(path))]
+        wrap = lambda a: (a + math.pi) % (2 * math.pi) - math.pi
+        tr = [wrap(rates[i] - rates[i-1]) for i in range(1, len(rates))]   # per-step turn rate
+        return max(abs(tr[i] - tr[i-1]) for i in range(1, len(tr)))        # max change = curvature jump
+
+    # l_route() has 30 m legs; default R=5.0 clothoid tangent (~7.9 m) fits comfortably.
+    # The arc snaps curvature at entry (large 2nd difference);
+    # the clothoid ramps gradually (small 2nd difference).
+    clo = project_route(r, 0.0, 0.0, 0.0, ProjectConfig(strategy="smoothed",
+                                                          corner_style="clothoid")).path
+    arc = project_route(r, 0.0, 0.0, 0.0, ProjectConfig(strategy="smoothed",
+                                                          corner_style="arc")).path
+    assert curvature_jump(clo) < curvature_jump(arc)
