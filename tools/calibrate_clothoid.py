@@ -1,18 +1,21 @@
 """Offline: estimate the clothoid transition length from human ego tracks.
 
-Speed-gates out stationary RTK jitter, resamples to 1 m, segments genuine turns,
-and measures each turn's curvature entry-ramp (10%->90% of peak). The median is
-the calibrated transition length. Run: PYTHONPATH=src python tools/calibrate_clothoid.py
+Speed-gates out stationary RTK jitter, resamples to 0.5 m, smooths per-step
+curvature with a 5-sample moving average, segments genuine turns, and measures
+each turn's curvature entry-ramp (10%->90% of peak). Turns whose measured ramp
+is 0 m are excluded as unresolvable sharp/jitter artifacts. The median over
+resolved (ramp > 0) turns is the calibrated transition length.
+Run: PYTHONPATH=src python tools/calibrate_clothoid.py
 """
 import glob
-import math
 import os
 import numpy as np
 from parking_proj.realdata import load_dataset, is_dataset_dir
 
 SPEED_MIN = 0.5      # m/s — drop stationary frames (jitter)
-DS = 1.0             # resample spacing
+DS = 0.5             # resample spacing (m)
 KAPPA_TURN = 1.0 / 15.0
+SMOOTH_WIN = 5       # curvature moving-average window
 
 
 def _entry_ramps(ds):
@@ -27,6 +30,8 @@ def _entry_ramps(ds):
     su = np.arange(0, s[-1], DS); eu = np.interp(su, s, e); nu = np.interp(su, s, n)
     psi = np.arctan2(np.diff(nu), np.diff(eu))
     kap = np.abs((np.diff(psi) + np.pi) % (2 * np.pi) - np.pi) / DS
+    # Smooth curvature to reduce RTK jitter before turn detection and ramp measurement
+    kap = np.convolve(kap, np.ones(SMOOTH_WIN) / SMOOTH_WIN, mode="same")
     turn = kap > KAPPA_TURN
     ramps, i = [], 0
     while i < len(turn):
@@ -56,16 +61,27 @@ def main():
             continue
         r = _entry_ramps(load_dataset(d))
         allr += r
-        per.append((os.path.basename(d), len(r), float(np.median(r)) if r else float("nan")))
-    value = float(np.median(allr)) if allr else 3.0
+        resolved = [x for x in r if x > 0]
+        med_resolved = float(np.median(resolved)) if resolved else float("nan")
+        per.append((os.path.basename(d), len(r), len(resolved), med_resolved))
+    all_resolved = [x for x in allr if x > 0]
+    value = float(np.median(all_resolved)) if all_resolved else 3.0
     value = round(min(6.0, max(1.0, value)), 1)
     lines = ["# Clothoid transition-length calibration", "",
-             f"Speed gate: >= {SPEED_MIN} m/s; resample {DS} m; turn threshold kappa > {KAPPA_TURN:.3f} (R<15 m).", "",
-             "| dataset | turns | median entry ramp (m) |", "|---|---|---|"]
-    for name, k, med in per:
-        lines.append(f"| {name[:32]} | {k} | {med:.1f} |")
+             f"Speed gate: >= {SPEED_MIN} m/s; resample {DS} m; "
+             f"curvature smoothed (moving average window {SMOOTH_WIN}); "
+             f"turn threshold kappa > {KAPPA_TURN:.3f} (R<15 m).", "",
+             "Turns with a measured entry ramp of 0 m are excluded as unresolvable "
+             "sharp/jitter artifacts. The calibrated value is the median of the "
+             "remaining resolved ramps.", "",
+             "| dataset | turns detected | resolved turns | median entry ramp (m) |",
+             "|---|---|---|---|"]
+    for name, k, kr, med in per:
+        med_str = f"{med:.1f}" if not (isinstance(med, float) and med != med) else "nan"
+        lines.append(f"| {name[:32]} | {k} | {kr} | {med_str} |")
     lines += ["", f"**Calibrated `clothoid_transition_m` = {value} m** "
-              f"(median entry ramp across all turns, clamped to [1, 6])."]
+              f"(median entry ramp over resolved turns, clamped to [1, 6]; "
+              f"0-ramp jitter turns excluded)."]
     with open("docs/clothoid_calibration.md", "w") as fh:
         fh.write("\n".join(lines) + "\n")
     print(f"CLOTHOID_TRANSITION_M={value}")
