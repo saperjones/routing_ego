@@ -378,7 +378,7 @@ offset while preserving heading error and curvature.
 |----------|--------------|-----------------|
 | `"raw"` | no | none |
 | `"centered"` | yes (§9.1) | none |
-| `"smoothed"` | yes (§9.1) | circular-arc fillet on forward portion (§9.3) |
+| `"smoothed"` | yes (§9.1) | forward portion filleted: clothoid (default) or arc, per `corner_style` (§9.3) |
 
 The **behind-stub** (samples with `s' < cursor_s`) is never smoothed regardless
 of strategy. The behind-stub reflects where the car actually came from; smoothing

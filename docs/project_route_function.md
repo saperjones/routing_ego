@@ -1,9 +1,9 @@
 # 核心设计思路 — `project_route` Function Description
 
 This document describes the portable `project_route` function: its I/O contract,
-the three output strategies, the arc-fillet corner-smoothing math, the
-per-frame behavior contract, performance characteristics, and the extension point
-for clothoid transitions. Every symbol is verified against `src/parking_proj/project_route.py`
+the three output strategies, the arc and clothoid corner-smoothing math, the
+per-frame behavior contract, and performance characteristics. Every symbol is
+verified against `src/parking_proj/project_route.py`
 and `src/parking_proj/smoothing.py`.
 
 ---
@@ -181,7 +181,10 @@ from. Only the actionable look-ahead is smoothed into a drivable path.
 
 ### 5.1 Pipeline
 
-`smooth_corners(pts, min_radius, corner_angle_deg, ds, eps, corner_style="arc", transition=3.0)` applies three steps:
+`smooth_corners(pts, min_radius, corner_angle_deg, ds, eps, corner_style="arc", transition=3.0)` applies three steps.
+(Note: the function's own defaults are `corner_style="arc", transition=3.0` for
+direct callers; the user-facing default is `ProjectConfig.corner_style="clothoid"`
+with `clothoid_transition_m=1.5`, which `project_route` passes in — see §2/§5.5.)
 
 1. **RDP simplification** (`rdp(pts, eps)`) — reduces the densely sampled
    polyline to its geometric skeleton, so that arc fitting operates on real
@@ -337,20 +340,13 @@ The function is designed for an embedded target running at 10 Hz:
 |----------|-----------|
 | **Windowed search** | Match scans at most `(search_ahead_m + search_back_m) / route_density` points (≈ 153 points at default 0.1 m route density) — O(W/Δs), not O(L). |
 | **Closed-form arcs** | No iterative convergence. `T`, `R_eff`, `C`, and arc points are all direct algebraic evaluations. |
-| **Clothoid integration** | The clothoid spiral is computed by numeric integration (`scipy.integrate.quad` in Python, Simpson's rule in JS) at fine internal steps; output is resampled at `ds`. |
+| **Clothoid integration** | The clothoid spiral is integrated from its linear-curvature profile by a fixed-step loop (midpoint rule for position, trapezoid for heading) at a fine internal step (`INTERNAL_DS = 0.1 m`); output is resampled at `ds`. No `scipy`; the identical loop runs in Python and JS. |
 | **No convergence loops** | RDP is O(N log N) in typical cases; arc fitting is O(V) where V = number of RDP vertices (typically small: 2–10 per 70 m segment). |
 | **Deterministic timing** | The matching window has a fixed upper bound; the only variable-cost step is RDP whose depth is bounded by the polyline vertex count. |
 
 ---
 
 ## 7. JavaScript Twin — `viewer/project_route.js`
-
-A future `strategy = "clothoid"` or a `corner_curve` parameter in `ProjectConfig`
-could select between arc and clothoid without touching the matching logic.
-
----
-
-## 8. JavaScript Twin — `viewer/project_route.js`
 
 A DOM-free port of the same algorithm is exposed as `window.ProjectRoute`:
 
@@ -374,8 +370,9 @@ ProjectRoute.buildRoute(points_e, points_n, s_opt, waypoint_indices_opt)
 
 The JS twin uses a true-modulo helper `mod(a, m) = ((a % m) + m) % m` to match
 Python/numpy's `%` behaviour in the heading-gate angular difference computation.
-The clothoid integral is computed by Simpson's rule in JS (matching
-`scipy.integrate.quad` in Python).
+The clothoid is integrated by the same fixed-step loop in both Python and JS
+(midpoint position, trapezoid heading, `INTERNAL_DS = 0.1 m`, `n = ceil(total /
+INTERNAL_DS)`, `h = total / n`), so the two agree bit-for-bit.
 
 **Parity guarantee:** `tests/e2e/test_parity_py_js.py` runs 40 cases (2 routes ×
 5 poses × 4 strategy/corner-style combos) through both Python and the JS twin in

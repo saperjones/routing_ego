@@ -201,7 +201,7 @@ pytest -v            # 56 unit + acceptance tests (fast, no browser)
 ```bash
 pip install -e ".[e2e]"
 python -m playwright install chromium
-pytest -m e2e -v     # 17 tests
+pytest -m e2e -v     # 19 tests
 ```
 
 The e2e suite serves the repo root, drives the viewer in headless Chromium, and
