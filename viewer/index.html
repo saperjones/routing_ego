@@ -20,17 +20,27 @@
   </aside>
   <main id="center">
     <div class="fig"><h3>BEV (top-down)</h3><canvas id="bev" width="560" height="300"></canvas></div>
-    <div class="fig"><h3>Driver view (+x up, +y left)
-      <label class="persp"><input type="checkbox" id="persp-toggle"> perspective 3D</label></h3>
+    <div class="fig" id="driver-fig"><h3>Driver view (+x up, +y left)</h3>
       <canvas id="driver" width="560" height="300"></canvas></div>
+    <div class="fig" id="compare-fig" style="display:none"><h3 id="compare-title">Compare all algorithms (top-down)</h3>
+      <div id="compare-row">
+        <div class="cmp"><canvas id="cmp-raw" width="150" height="300"></canvas><span>Raw</span></div>
+        <div class="cmp"><canvas id="cmp-centered" width="150" height="300"></canvas><span>Centered</span></div>
+        <div class="cmp"><canvas id="cmp-smoothed" width="150" height="300"></canvas><span>Smoothed</span></div>
+        <div class="cmp"><canvas id="cmp-human" width="150" height="300"></canvas><span>Human</span></div>
+        <div class="cmp"><canvas id="cmp-human_centered" width="150" height="300"></canvas><span>Human centered</span></div>
+      </div></div>
     <div id="controls">
       <button id="btn-step-back">◀</button>
       <button id="btn-play">▶ / ❚❚</button>
       <button id="btn-step-fwd">▶</button>
       <input type="range" id="scrubber" min="0" max="0" value="0" step="1">
-      <select id="speed"><option value="0.5">0.5×</option>
-        <option value="1" selected>1×</option><option value="2">2×</option></select>
+      <select id="speed"><option value="1" selected>1×</option>
+        <option value="2">2×</option><option value="5">5×</option>
+        <option value="10">10×</option></select>
       <span id="frame-label">0 / 0</span>
+      <label class="cmp-toggle" style="margin-left:auto"><input type="checkbox" id="persp-toggle"> perspective 3D</label>
+      <label class="cmp-toggle"><input type="checkbox" id="compare-toggle"> compare all</label>
     </div>
   </main>
   <aside id="right">

@@ -19,7 +19,13 @@ canvas { background: #fff; border: 1px solid #ccd; display: block; }
 #case-list li.group-header:hover { background: none; }
 .badge { float: right; font-size: 11px; padding: 0 6px; border-radius: 8px; color: #fff; }
 .badge.pass { background: #2e9e5b; } .badge.fail { background: #cc3a3a; }
+#compare-row { display: flex; gap: 6px; overflow-x: auto; }
+#compare-row .cmp { flex: 0 0 auto; text-align: center; }
+#compare-row .cmp canvas { width: 150px; height: 300px; }
+#compare-row .cmp span { display: block; font-size: 11px; font-weight: 600; color: #334; margin-top: 3px; }
 #controls { display: flex; align-items: center; gap: 8px; }
+#controls .cmp-toggle { display: inline-flex; align-items: center; gap: 4px;
+  white-space: nowrap; font-size: 12px; color: #445; cursor: pointer; }
 #scrubber { flex: 1; }
 /* projection controls panel (right sidebar) */
 #panel { margin-bottom: 16px; }

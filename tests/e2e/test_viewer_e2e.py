@@ -261,6 +261,46 @@ def test_perspective_view_renders(viewer):
     page.uncheck("#persp-toggle")
 
 
+def test_compare_all_tiles_five_strategies(viewer):
+    """The 'compare all' toggle hides the single driver view and shows five
+    top-down panels — one per strategy — each rendering the same frame. Raw and
+    centered must differ (proving each panel runs its own strategy)."""
+    page, _ = viewer
+    _select(page, "X-crossing (high)")
+    page.eval_on_selector(
+        "#scrubber",
+        "el => { el.value = Math.floor(el.max * 0.5); el.dispatchEvent(new Event('input')); }",
+    )
+    page.wait_for_timeout(80)
+    page.check("#compare-toggle")
+    page.wait_for_timeout(120)
+    # single view hidden, compare row shown
+    assert page.locator("#driver-fig").is_hidden()
+    assert page.locator("#compare-fig").is_visible()
+    # every panel drew a path
+    for strat in ("raw", "centered", "smoothed", "human", "human_centered"):
+        g = page.evaluate(_GEOM, f"#cmp-{strat}")
+        assert g["drawn"] > 200, (strat, g)
+    # raw (keeps offset) and centered (removes it) must differ for an offset case
+    sig_raw = page.evaluate(_SIGNATURE, "#cmp-raw")
+    sig_ctr = page.evaluate(_SIGNATURE, "#cmp-centered")
+    assert sig_raw != sig_ctr, "raw vs centered panels should differ"
+    # perspective 3D also applies to every compare panel: turning it on repaints
+    # all five with the windshield view (sky/ground fill → much denser).
+    td = {s: page.evaluate(_GEOM, f"#cmp-{s}")["drawn"]
+          for s in ("raw", "centered", "smoothed", "human", "human_centered")}
+    page.check("#persp-toggle")
+    page.wait_for_timeout(120)
+    for strat in ("raw", "centered", "smoothed", "human", "human_centered"):
+        persp = page.evaluate(_GEOM, f"#cmp-{strat}")
+        assert persp["drawn"] > td[strat] * 2, (strat, td[strat], persp)
+    page.uncheck("#persp-toggle")
+    page.uncheck("#compare-toggle")
+    page.wait_for_timeout(80)
+    assert page.locator("#compare-fig").is_hidden()
+    assert page.locator("#driver-fig").is_visible()
+
+
 def test_no_js_errors(viewer):
     page, errors = viewer
     # exercise a couple more interactions before the final error check

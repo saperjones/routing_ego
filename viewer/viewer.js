@@ -320,11 +320,11 @@ function cursorAt(c, frameIdx) {
 
 // Body-frame path for this frame under the live config. Reuses the memoized
 // cursor so slider/selector changes recompute only the output (instant).
-function computeBodyPath(c, frameIdx) {
+function computeBodyPath(c, frameIdx, cfgOverride) {
   ensureRouteJs(c);
   const f = c.frames[frameIdx];
   const cursor = cursorAt(c, frameIdx);
-  const cfg = currentConfig();
+  const cfg = cfgOverride || currentConfig();
   const state = { cursor_s: cursor, initialized: true };
   // re-run project_route from the known cursor: pass a state whose cursor equals
   // this frame's cursor and a pose on that spot so match() returns it unchanged.
@@ -370,9 +370,21 @@ function drawDriver() {
   ctx.clearRect(0, 0, cv.width, cv.height);
   const f = c.frames[STATE.frame];
   if (!f.meas_pose) return;
-  if (document.getElementById("persp-toggle").checked) { drawWindshield(ctx, f); return; }
-  const behindLive = parseFloat(document.getElementById("p-behind").value);
-  const aheadLive = parseFloat(document.getElementById("p-ahead").value);
+  if (document.getElementById("persp-toggle").checked) { drawWindshield(ctx, f, currentConfig(), null); return; }
+  drawDriverTopDown(cv, f, currentConfig(), null);
+}
+
+// Draw one top-down driver-view panel: the generated path (green) + the real
+// driven trajectory overlay (orange dashed) + the car, all in the body frame of
+// `cfg`. Reused by the single driver view (label=null → full legend) and by each
+// compare-mode panel (label=strategy name → compact heading). `cfg` carries the
+// strategy, so every panel runs the SAME renderer with a different config.
+function drawDriverTopDown(cv, f, cfg, label) {
+  const c = STATE.case;
+  const ctx = cv.getContext("2d");
+  ctx.clearRect(0, 0, cv.width, cv.height);
+  const behindLive = cfg.behind_m;
+  const aheadLive = cfg.ahead_m;
   const w = cv.width, h = cv.height;
   const ppm = (h - 20) / (aheadLive + behindLive);
   const toX = (by) => w / 2 - by * ppm;
@@ -380,7 +392,7 @@ function drawDriver() {
   // compute the generated path first — it also reports the frame yaw it used
   // (for human_centered that is the curve tangent, not the vehicle heading), so
   // the overlay is drawn in the SAME frame and stays comparable.
-  const cp = computeBodyPath(c, STATE.frame);
+  const cp = computeBodyPath(c, STATE.frame, cfg);
   const pts = cp.pts, yawUse = cp.yaw;
   // overlay: the real driven trajectory (ego track) in that frame (orange).
   const cur = f.meas_pose;
@@ -407,13 +419,41 @@ function drawDriver() {
   // car at origin (width=1.8m, height=3.6m, centered)
   ctx.fillStyle = "#cc3a3a";
   ctx.fillRect(toX(0.9), toY(1.8), 1.8 * ppm, 3.6 * ppm);
-  // legend
-  ctx.font = "11px sans-serif";
-  ctx.fillStyle = "#2e9e5b"; ctx.fillText("— generated", 8, 16);
-  ctx.fillStyle = "rgba(230,140,0,0.95)"; ctx.fillText("- - real trajectory", 8, 30);
+  if (label) {
+    // compact heading for a compare panel
+    ctx.font = "11px sans-serif"; ctx.fillStyle = "#334";
+    ctx.fillText(label, 6, 14);
+  } else {
+    // full legend for the single driver view
+    ctx.font = "11px sans-serif";
+    ctx.fillStyle = "#2e9e5b"; ctx.fillText("— generated", 8, 16);
+    ctx.fillStyle = "rgba(230,140,0,0.95)"; ctx.fillText("- - real trajectory", 8, 30);
+  }
   if (f.end_flag) {
     ctx.fillStyle = "#cc3a3a"; ctx.font = "12px sans-serif";
-    ctx.fillText("route ends", 8, 44);
+    ctx.fillText("route ends", 8, label ? 28 : 44);
+  }
+}
+
+// Compare mode: tile all five strategies side-by-side, each in its own panel,
+// sharing the current frame and the live corner/window sliders.
+const COMPARE_STRATEGIES = [
+  ["raw", "Raw"], ["centered", "Centered"], ["smoothed", "Smoothed"],
+  ["human", "Human"], ["human_centered", "Human centered"],
+];
+function drawCompare() {
+  const c = STATE.case, f = c.frames[STATE.frame];
+  if (!f.meas_pose) return;
+  const base = currentConfig();
+  const persp = document.getElementById("persp-toggle").checked;
+  document.getElementById("compare-title").textContent =
+    "Compare all algorithms (" + (persp ? "perspective" : "top-down") + ")";
+  for (const [strategy, label] of COMPARE_STRATEGIES) {
+    const cv = document.getElementById("cmp-" + strategy);
+    if (!cv) continue;
+    const cfg = Object.assign({}, base, { strategy });
+    if (persp) drawWindshield(cv.getContext("2d"), f, cfg, label);
+    else drawDriverTopDown(cv, f, cfg, label);
   }
 }
 
@@ -426,7 +466,8 @@ const PERSP = { H: 1.4, pitch_deg: 10, hfov_deg: 70, half_width: 0.7 };
 // ahead through a forward-looking pinhole camera, with a horizon, a ground
 // grid for depth, and the trajectory as a ribbon that narrows into the
 // distance and converges toward the vanishing point.
-function drawWindshield(ctx, f) {
+function drawWindshield(ctx, f, cfg, label) {
+  cfg = cfg || currentConfig();
   const cv = ctx.canvas, w = cv.width, h = cv.height;
   const H = PERSP.H;
   const pitch = PERSP.pitch_deg * Math.PI / 180;         // downward camera pitch
@@ -452,7 +493,7 @@ function drawWindshield(ctx, f) {
   ctx.beginPath(); ctx.moveTo(0, hy); ctx.lineTo(w, hy); ctx.stroke();
 
   // ground grid for depth cue
-  const XMAX = parseFloat(document.getElementById("p-ahead").value);
+  const XMAX = cfg.ahead_m;
   ctx.strokeStyle = "#cbd1d9"; ctx.lineWidth = 1;
   for (const Y of [-4, -2, 0, 2, 4]) {                   // longitudinal lines
     let started = false; ctx.beginPath();
@@ -474,7 +515,7 @@ function drawWindshield(ctx, f) {
 
   // route ribbon: edges offset +/- half_width in the body frame
   const HW = PERSP.half_width;
-  const pts = computeBodyPath(STATE.case, STATE.frame).pts.filter(p => p.x >= 0);
+  const pts = computeBodyPath(STATE.case, STATE.frame, cfg).pts.filter(p => p.x >= 0);
   const left = [], right = [], mid = [];
   for (const b of pts) {
     if (b.x <= 0.05) continue;
@@ -513,14 +554,16 @@ function drawWindshield(ctx, f) {
   ctx.closePath(); ctx.fill();
 
   ctx.fillStyle = "#556"; ctx.font = "11px sans-serif";
-  ctx.fillText("driver view (perspective)", 8, 16);
+  ctx.fillText(label || "driver view (perspective)", 8, 16);
   if (f.end_flag) { ctx.fillStyle = "#cc3a3a"; ctx.fillText("route ends", 8, 30); }
 }
 
 function renderFrame() {
   const c = STATE.case; if (!c) return;
   if (STATE.case.mode === "real") drawBevReal(); else drawBev();
-  drawDriver(); updateTelemetry(); drawPanoramaDot();
+  if (document.getElementById("compare-toggle").checked) drawCompare();
+  else drawDriver();
+  updateTelemetry(); drawPanoramaDot();
   document.getElementById("scrubber").value = STATE.frame;
   document.getElementById("frame-label").textContent =
     `${STATE.frame} / ${c.frames.length - 1}`;
@@ -582,6 +625,12 @@ window.addEventListener("DOMContentLoaded", () => {
   };
   document.getElementById("speed").onchange = (ev) => { STATE.speed = parseFloat(ev.target.value); };
   document.getElementById("persp-toggle").onchange = () => renderFrame();
+  document.getElementById("compare-toggle").onchange = (ev) => {
+    const on = ev.target.checked;
+    document.getElementById("driver-fig").style.display = on ? "none" : "";
+    document.getElementById("compare-fig").style.display = on ? "" : "none";
+    renderFrame();
+  };
   document.getElementById("algo-select").onchange = () => renderFrame();
   document.getElementById("corner-style").onchange = () => renderFrame();
   for (const id of ["p-radius", "p-behind", "p-ahead", "p-corner", "p-transition"]) {
