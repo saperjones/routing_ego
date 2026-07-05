@@ -40,8 +40,21 @@ gen_real() {
     PYTHONPATH=src "$PY" -m parking_proj.generate_real
 }
 
+free_port() {
+    # kill any process already listening on $PORT so we never hit
+    # "Address already in use" from a leftover server
+    local pids
+    pids=$(lsof -nP -tiTCP:"$PORT" -sTCP:LISTEN 2>/dev/null || true)
+    if [ -n "$pids" ]; then
+        echo ">> port ${PORT} busy (pids: ${pids//$'\n'/ }) — freeing it"
+        kill $pids 2>/dev/null || true
+        sleep 1
+    fi
+}
+
 serve() {
     gen
+    free_port
     echo ">> serving at ${URL}"
     echo ">> (Ctrl-C to stop)"
     # open the browser shortly after the server comes up (macOS/Linux best-effort)
