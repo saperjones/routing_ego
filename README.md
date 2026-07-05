@@ -72,10 +72,10 @@ PORT=9000 ./run.sh  # override the port (default 8000)
     corner and is C-infinity smooth, mimicking how a human anticipates a turn;
     the `transition` slider sets how early), `clothoid` (
     Euler spiral with curvature ramping linearly 0→1/R→0, no entry/exit snap).
-    The `clothoid_transition_m` default is **4.0 m** for a smooth feel (the
+    The `clothoid_transition_m` default is **8 m** for a smooth feel (the
     human ego-track calibration measured 1.5 m; see `docs/clothoid_calibration.md`).
     `R_min` defaults to **8 m**. Both are set for smoothness out-of-the-box.
-  - **Transition slider** (`#p-transition`, 0.5–8 m) — controls the clothoid
+  - **Transition slider** (`#p-transition`, 0.5–15 m) — controls the clothoid
     spiral length; shorter gives a tighter entry ramp, longer gives a more gradual
     curvature build-up. Falls back to an arc for corners where the legs are too
     short to fit the full transition.
@@ -107,7 +107,7 @@ frame the function:
 2. **Advances the cursor monotonically** (`cursor_s = max(cursor_s, matched_s)`)
    — valid because re-walking and U-turns are forbidden by product definition.
 3. **Constructs the body-frame path** over `[cursor_s − behind_m, cursor_s + ahead_m]`
-   (defaults: 5 m behind, 70 m ahead, 0.5 m step) according to the chosen strategy:
+   (defaults: 5 m behind, 40 m ahead, 0.5 m step) according to the chosen strategy:
 
 | Strategy | Lateral offset | Corner treatment |
 |----------|---------------|-----------------|

@@ -19,7 +19,7 @@ SEARCH_AHEAD = 15.0
 class ProjectConfig:
     strategy: str = "smoothed"          # "raw" | "centered" | "smoothed"
     behind_m: float = 5.0
-    ahead_m: float = 70.0
+    ahead_m: float = 40.0
     sample_ds_m: float = 0.5
     search_ahead_m: float = SEARCH_AHEAD
     search_back_m: float = 0.3

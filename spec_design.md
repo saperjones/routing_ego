@@ -199,7 +199,7 @@ The portable function `project_route(route, pose_e, pose_n, yaw, config, state=N
 |-------|---------|-------------|
 | `strategy` | `"smoothed"` (code) / `"human"` (viewer) | `"raw"` / `"centered"` / `"smoothed"` / `"human"` |
 | `behind_m` | 5.0 | look-behind window (m) |
-| `ahead_m` | 70.0 | look-ahead window (m) |
+| `ahead_m` | 40.0 | look-ahead window (m) |
 | `sample_ds_m` | 0.5 | path sampling step (m) |
 | `search_ahead_m` | 15.0 | forward search window (m) |
 | `search_back_m` | 0.3 | back-tolerance (m) |
