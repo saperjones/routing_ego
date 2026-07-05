@@ -20,7 +20,8 @@
   </aside>
   <main id="center">
     <div class="fig"><h3>BEV (top-down)</h3><canvas id="bev" width="560" height="300"></canvas></div>
-    <div class="fig"><h3>Driver view (+x up, +y left)</h3>
+    <div class="fig"><h3>Driver view (+x up, +y left)
+      <label class="persp"><input type="checkbox" id="persp-toggle"> perspective 3D</label></h3>
       <canvas id="driver" width="560" height="300"></canvas></div>
     <div id="controls">
       <button id="btn-step-back">◀</button>
@@ -43,7 +44,6 @@
           <option value="human">Human-like (cuts corners)</option>
           <option value="human_centered" selected>Centered human driving</option>
         </select></label>
-      <label class="chk"><input type="checkbox" id="persp-toggle"> Perspective (windshield 3D)</label>
 
       <div class="cap">Corner shaping <span class="hint">smoothed / human</span></div>
       <label class="ctl-row">Corner style
