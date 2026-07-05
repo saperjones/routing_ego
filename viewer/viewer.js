@@ -10,7 +10,7 @@ async function loadIndex() {
   const ul = document.getElementById("case-list");
   ul.innerHTML = "";
   let data;
-  try { data = await (await fetch(url)).json(); }
+  try { data = await (await fetch(url, { cache: "no-store" })).json(); }
   catch (e) { ul.innerHTML = "<li>(no cases — run ./run.sh " +
     (STATE.mode === "real" ? "gen-real" : "gen") + ")</li>"; return; }
   let lastGroup = null;
@@ -33,7 +33,7 @@ async function loadIndex() {
 
 async function loadCase(caseId) {
   const dir = STATE.mode === "real" ? "../out/real/" : "../out/";
-  STATE.case = await (await fetch(`${dir}${caseId}.json`)).json();
+  STATE.case = await (await fetch(`${dir}${caseId}.json`, { cache: "no-store" })).json();
   STATE.frame = 0;
   STATE.basemapImgs = null;
   if (STATE.case.mode === "real" && STATE.case.basemap) {
