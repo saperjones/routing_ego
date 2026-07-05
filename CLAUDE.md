@@ -29,7 +29,11 @@
   GCJ-02). When a compliant tile source is not reachable, the BEV falls back to a
   gray graticule — the route/track/arrows always render. Tile source is
   configurable via env: `PARKING_TILE_URL` (template with `{z}/{x}/{y}`, optional
-  `{key}`), `PARKING_TILE_KEY`, `PARKING_TILE_UA` (default OpenStreetMap).
+  `{key}`), `PARKING_TILE_KEY`, `PARKING_TILE_UA`. Default is the OSM community
+  server `tile.openstreetmap.de` — the main `tile.openstreetmap.org` blocks
+  scripted/bulk access (serves an identical placeholder tile), so baking against
+  it yields `has_map:false`. Set `PARKING_TILE_URL` for a keyed provider or
+  satellite imagery (e.g. Esri World Imagery uses `.../{z}/{y}/{x}`).
 - `geo.py` is the single place WGS-84 ⇄ ENU conversion happens; nothing else
   touches lat/lon.
 - All randomness is seeded (`numpy.random.default_rng`), so regeneration is

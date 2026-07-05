@@ -34,7 +34,11 @@ def choose_zoom(min_lon, min_lat, max_lon, max_lat, max_tiles=25, zmax=18):
     return best
 
 
-_DEFAULT_TILE_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+# OpenStreetMap raster tiles. The main tile.openstreetmap.org server blocks
+# scripted/bulk access per its usage policy (it serves an identical placeholder
+# tile), so the default is the OSM community server that permits programmatic
+# access. Override with PARKING_TILE_URL for a keyed provider or satellite imagery.
+_DEFAULT_TILE_URL = "https://tile.openstreetmap.de/{z}/{x}/{y}.png"
 _DEFAULT_UA = "parking-route-projection/0.1 (offline research viewer)"
 
 

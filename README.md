@@ -283,9 +283,13 @@ still shown. Real frames carry the same raw inputs (route, `meas_pose`,
 `cursor_s`, `matched_seg`) as simulation frames; the viewer computes the
 body-frame path live from them using the selected algorithm and sliders.
 
-**Tile source (configurable).** By default tiles come from OpenStreetMap
-(`https://tile.openstreetmap.org/{z}/{x}/{y}.png`). Override via env vars to use
-a compliant provider / API key:
+**Tile source (configurable).** By default tiles come from the OpenStreetMap
+community server (`https://tile.openstreetmap.de/{z}/{x}/{y}.png`). The main
+`tile.openstreetmap.org` server blocks scripted/bulk access (it returns an
+identical placeholder tile), which makes baking fall back to `has_map:false` and
+the gray graticule — so the default points at a server that permits programmatic
+access. Override via env vars to use a compliant provider / API key (or
+satellite imagery such as Esri World Imagery, which uses `.../{z}/{y}/{x}`):
 
 ```bash
 PARKING_TILE_URL="https://tile.example.com/{z}/{x}/{y}.png?apikey={key}" \
