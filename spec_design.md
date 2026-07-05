@@ -358,7 +358,7 @@ The behind-stub is never smoothed. See `docs/project_route_function.md` for the 
 4. **No dropouts:** every frame yields a valid body-frame slice filling `[BEHIND, AHEAD]`, except naturally clipped at route start/end.
 5. **Viewer:** all 14 cases load; panorama shows numbered waypoints; BEV + driver-view + telemetry render per frame; frame-step + continuous play with minimal flicker; nothing regenerates on click.
 
-> Implementation note: during the build the headline metric in criterion 1 was refined to be **along-track-aware** — a frame counts as a wrong-branch mismatch only when the matched segment differs from ground truth **and** the along-track error `|cursor_s − gt_s|` exceeds `3 m`. This keeps the "≤ 3 frames" tolerance for real wrong-stroke jumps while not penalizing benign ~1–2 m segment-boundary timing under injected noise. See `algorithm_description.md` §6.
+> Implementation note: during the build the headline metric in criterion 1 was refined to be **along-track-aware** — a frame counts as a wrong-branch mismatch only when the matched segment differs from ground truth **and** the along-track error `|cursor_s − gt_s|` exceeds `3 m`. This keeps the "≤ 3 frames" tolerance for real wrong-stroke jumps while not penalizing benign ~1–2 m segment-boundary timing under injected noise. See the Algorithm reference in `README.md` ("Why self-crossings resolve" and "Grading metric").
 
 ---
 

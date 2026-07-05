@@ -121,7 +121,8 @@ cursor_s = max(state.cursor_s, route.s[matched_index])
 ```
 
 The `max` guarantees `cursor_s` is non-decreasing regardless of measurement
-noise, which resolves self-crossing ambiguity (see `algorithm_description.md §6`).
+noise, which resolves self-crossing ambiguity (see `README.md`, the Algorithm
+reference — "Why self-crossings resolve").
 
 ### Lateral deviation
 
