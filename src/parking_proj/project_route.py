@@ -114,7 +114,8 @@ def _get_world(route, cfg):
     """Build (and cache on the route) the world route transformed ONCE for cfg:
     'smoothed' rounds corners (arc/clothoid/driver); 'human' cuts corners inside
     (calibrated) then smooths — mimicking how a driver takes a corner early/wide."""
-    key = (cfg.strategy, cfg.corner_style, round(cfg.min_turn_radius_m, 4),
+    is_human = cfg.strategy in ("human", "human_centered")
+    key = ("human" if is_human else cfg.strategy, cfg.corner_style, round(cfg.min_turn_radius_m, 4),
            round(cfg.clothoid_transition_m, 4), round(cfg.corner_angle_deg, 4),
            round(cfg.simplify_eps_m, 4), round(cfg.sample_ds_m, 4), round(cfg.human_cut_m, 4))
     cache = getattr(route, "_sm_cache", None)
@@ -127,7 +128,7 @@ def _get_world(route, cfg):
     sm = cache.get(key)
     if sm is None:
         world = [(float(p[0]), float(p[1])) for p in route.points]
-        if cfg.strategy == "human":
+        if is_human:
             pts = human_corners(world, cfg.human_cut_m, cfg.clothoid_transition_m,
                                 cfg.sample_ds_m, cfg.simplify_eps_m, cfg.corner_angle_deg)
         else:
@@ -139,14 +140,32 @@ def _get_world(route, cfg):
     return sm
 
 
+def _project_onto(geom, pe, pn, cs0, window):
+    """Arc-length on geom of the point nearest to (pe,pn), searched within
+    +/-window of cs0 (the projection of the vehicle onto the curve)."""
+    lo = bisect.bisect_left(geom.s, max(cs0 - window, 0.0))
+    hi = bisect.bisect_right(geom.s, min(cs0 + window, geom.length))
+    best_s, best_d = cs0, float("inf")
+    for i in range(max(0, lo), min(len(geom.pts), max(hi, lo + 1))):
+        px, py = geom.pts[i]
+        d = (px - pe) ** 2 + (py - pn) ** 2
+        if d < best_d:
+            best_d, best_s = d, geom.s[i]
+    return best_s
+
+
 def project_route(route, pose_e, pose_n, yaw, config, state=None, speed=None):
     cfg = config
     cursor_s, matched_seg, lat_dev, end_flag = _match(route, pose_e, pose_n, yaw, cfg, state)
-    # "smoothed"/"human" sample a route transformed ONCE in world space (stable
-    # corner); "raw"/"centered" sample the original route. cursor_s maps proportionally.
-    if cfg.strategy in ("smoothed", "human"):
+    # "smoothed"/"human"/"human_centered" sample a route transformed ONCE in world
+    # space (stable corner); "raw"/"centered" sample the original route.
+    if cfg.strategy in ("smoothed", "human", "human_centered"):
         geom = _get_world(route, cfg)
         cs = cursor_s * (geom.length / route.length) if route.length > 1e-9 else cursor_s
+        # "human_centered": project the vehicle onto the generated curve (nearest
+        # point) and center there, minimising the residual offset.
+        if cfg.strategy == "human_centered":
+            cs = _project_onto(geom, pose_e, pose_n, cs, cfg.search_ahead_m)
     else:
         geom = route
         cs = cursor_s

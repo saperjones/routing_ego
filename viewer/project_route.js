@@ -237,7 +237,8 @@
     const sig = _smSig(cfg), e = _smCache.get(route);
     if (e && e.sig === sig) return e.geom;
     const world = route.points.map(p => [p[0], p[1]]);
-    const pts = cfg.strategy === "human"
+    const isHuman = cfg.strategy === "human" || cfg.strategy === "human_centered";
+    const pts = isHuman
       ? humanCorners(world, cfg.human_cut_m, cfg.clothoid_transition_m, cfg.sample_ds_m, cfg.simplify_eps_m, cfg.corner_angle_deg)
       : smoothCorners(world, cfg.min_turn_radius_m, cfg.corner_angle_deg, cfg.sample_ds_m, cfg.simplify_eps_m,
                       cfg.corner_style, cfg.clothoid_transition_m);
@@ -258,12 +259,25 @@
             geom.pts[i][1] + t * (geom.pts[i + 1][1] - geom.pts[i][1])];
   }
 
+  function projectOnto(geom, pe, pn, cs0, window) {
+    const loS = Math.max(cs0 - window, 0), hiS = Math.min(cs0 + window, geom.length);
+    let a = 0, b = geom.s.length;
+    while (a < b) { const mm = (a + b) >> 1; if (geom.s[mm] < loS) a = mm + 1; else b = mm; }
+    let bestS = cs0, bestD = Infinity;
+    for (let i = Math.max(0, a); i < geom.pts.length && geom.s[i] <= hiS; i++) {
+      const dx = geom.pts[i][0] - pe, dy = geom.pts[i][1] - pn, d = dx * dx + dy * dy;
+      if (d < bestD) { bestD = d; bestS = geom.s[i]; }
+    }
+    return bestS;
+  }
+
   function projectRoute(route, pose, cfg, state) {
     const m = match(route, pose.e, pose.n, pose.h, cfg, state);
     let geom, cs, sampleAt;
-    if (cfg.strategy === "smoothed" || cfg.strategy === "human") {
+    if (cfg.strategy === "smoothed" || cfg.strategy === "human" || cfg.strategy === "human_centered") {
       geom = getSmoothed(route, cfg);
       cs = route.length > 1e-9 ? m.cursor_s * (geom.length / route.length) : m.cursor_s;
+      if (cfg.strategy === "human_centered") cs = projectOnto(geom, pose.e, pose.n, cs, cfg.search_ahead_m);
       sampleAt = (s) => smPointAtS(geom, s);
     } else {
       geom = route; cs = m.cursor_s;

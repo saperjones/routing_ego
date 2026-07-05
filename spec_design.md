@@ -1,6 +1,14 @@
 # Design Spec: Parking Navigation Route Projection Algorithm
 
-> **Update 2026-07-04 (smoothing):** the `smoothed` strategy now smooths the route **once in world space** (cached) and re-windows that fixed curve each frame, so the corner no longer jitters frame-to-frame. Defaults raised for a smooth-by-default feel: `min_turn_radius_m = 8.0`, `clothoid_transition_m = 4.0` (calibration measured 1.5 m). The driver view overlays the real driven trajectory for comparison.
+> **Current state (2026-07-05) — read this first; §2/§3.6.1/§3.7 tables below are authoritative.**
+> - **Five output strategies:** `raw`, `centered`, `smoothed`, `human`, `human_centered`. The viewer defaults to **`human_centered`**.
+> - **`human`** = centered + inside corner-cut (`human_cut_m` ≈ 2.2 m @90°, calibrated from ego tracks) + anticipatory Gaussian smoothing — mimics a driver taking a corner early and wide.
+> - **`human_centered`** = `human`, but the vehicle is **projected onto the generated curve** (nearest point) and centered there — minimises the residual cross-track offset (near offset ≈ 0).
+> - **`smoothed`** rounds each corner with a `corner_style`: `driver` (Gaussian low-pass, starts turning before the corner; viewer default), `clothoid` (Euler spiral, curvature-continuous), or `arc` (circular). 
+> - Both `smoothed` and `human` smooth the route **once in world space** (cached) and re-window that fixed curve each frame, so the corner does not jitter frame-to-frame.
+> - Smooth-by-default values: `min_turn_radius_m = 8`, `clothoid_transition_m = 8` (also the Gaussian σ / anticipation width for driver & human; slider 0.5–15). The clothoid calibration measured a 1.5 m entry ramp; the default is raised for a gentler feel.
+> - Finding: most of the driver-vs-planned-route gap is a **constant lane offset (~2.8 m)** the human drove (removed by `centered`); corner-cutting addresses the residual corner shape. `transition` is the smoothness/width knob for `driver`/`human`; `R_min`/`corner_style` do not apply to `human`.
+> - The driver view **overlays the real driven trajectory (orange)** vs the generated path (green) for comparison.
 
 
 **Status:** finalized (requirements + hardened design + confirmed tests)
@@ -47,11 +55,15 @@ The system is **two clean halves that meet at a JSON file:**
 
 **The portable function (`project_route.py`):** the pure function `project_route` encapsulates both the match and the path construction in a single, stateless call. The caller holds `ProjectState(cursor_s, initialized)` and passes it back each frame. Three output strategies are selectable via `ProjectConfig.strategy`:
 
-| Strategy | Offset | Corner smoothing |
+| Strategy | Offset | Corner treatment |
 |----------|--------|-----------------|
 | `"raw"` | as-is (shows lateral offset) | none |
 | `"centered"` | removed (anchor at `y = 0`) | none |
-| `"smoothed"` | removed | corner fillet: `corner_style="clothoid"` (default, Euler spiral, curvature-continuous) or `corner_style="arc"` (circular arc); radius ≥ `min_turn_radius_m` |
+| `"smoothed"` | removed | corner fillet, `corner_style`: `driver` (Gaussian low-pass, anticipatory), `clothoid` (Euler spiral, curvature-continuous), or `arc` (circular, radius ≥ `min_turn_radius_m`) |
+| `"human"` | removed at anchor | inside corner-**cut** (`human_cut_m`, calibrated) + anticipatory Gaussian smoothing — driver-like early/wide line |
+| `"human_centered"` | **minimised** (vehicle projected onto the curve) | same as `"human"`, but centered on the nearest point of the generated curve → near cross-track offset ≈ 0 |
+
+`"smoothed"`, `"human"`, and `"human_centered"` build the transformed route **once in world space** (cached), then re-window that fixed curve each frame (stable corner, no per-frame jitter).
 
 **Alternatives rejected:**
 - Stateless global nearest-point search — genuinely ambiguous at self-crossings (the exact failure this project targets).
@@ -185,18 +197,19 @@ The portable function `project_route(route, pose_e, pose_n, yaw, config, state=N
 
 | Field | Default | Description |
 |-------|---------|-------------|
-| `strategy` | `"smoothed"` | `"raw"` / `"centered"` / `"smoothed"` |
+| `strategy` | `"smoothed"` (code) / `"human"` (viewer) | `"raw"` / `"centered"` / `"smoothed"` / `"human"` |
 | `behind_m` | 5.0 | look-behind window (m) |
 | `ahead_m` | 70.0 | look-ahead window (m) |
 | `sample_ds_m` | 0.5 | path sampling step (m) |
 | `search_ahead_m` | 15.0 | forward search window (m) |
 | `search_back_m` | 0.3 | back-tolerance (m) |
 | `heading_gate_deg` | 60.0 | heading-agreement gate (degrees) |
-| `min_turn_radius_m` | 5.0 | arc-fillet min radius (m); `smoothed` only |
-| `corner_angle_deg` | 10.0 | min angle to fillet (degrees); `smoothed` only |
-| `simplify_eps_m` | 0.20 | RDP tolerance (m); `smoothed` only |
-| `corner_style` | `"clothoid"` | `"arc"` or `"clothoid"`; `smoothed` only |
-| `clothoid_transition_m` | 1.5 | clothoid spiral transition length (m); `smoothed`+`clothoid` only |
+| `min_turn_radius_m` | 8.0 | corner radius used for smoothing (m); `smoothed` arc/clothoid only |
+| `corner_angle_deg` | 10.0 | min angle to fillet (degrees) |
+| `simplify_eps_m` | 0.20 | RDP tolerance (m) |
+| `corner_style` | `"clothoid"` (code) / `"driver"` (viewer) | `"driver"` / `"clothoid"` / `"arc"`; `smoothed` only |
+| `clothoid_transition_m` | 8.0 | clothoid transition length; also the Gaussian σ (anticipation width) for `driver`/`human` |
+| `human_cut_m` | 2.2 | inside corner-cut at a 90° turn (m), calibrated; `human` only |
 
 **`ProjectState`**: `cursor_s`, `initialized` — the caller holds this between frames.
 
@@ -206,9 +219,11 @@ The portable function `project_route(route, pose_e, pose_n, yaw, config, state=N
 
 - **`"raw"`** — body-frame rotation only; lateral offset preserved.
 - **`"centered"`** — lateral shift subtracted so the matched anchor sits at `y = 0`; preserves heading error and curvature.
-- **`"smoothed"`** — same shift as `"centered"`, then the forward portion is passed through `smooth_corners`: RDP simplification (tolerance `simplify_eps_m`), followed by a corner fillet. When `corner_style="clothoid"`, each corner uses a symmetric clothoid (Euler spiral) with curvature ramping linearly 0→1/R over `clothoid_transition_m`, an optional constant-curvature arc, then back to 0; the fit is tried at factors 1, 0.5, 0.25 of the transition length and falls back to an arc if none fit. When `corner_style="arc"` (or clothoid fallback), a circular-arc fillet with `T = R_min · tan(δ/2)` clamped to half the adjacent leg, `R_eff = T / tan(δ/2)`. For non-degenerate legs, peak curvature `κ ≤ 1 / min_turn_radius_m`; the behind-stub is not smoothed.
+- **`"smoothed"`** — same shift as `"centered"`, then the route is smoothed **once in world space** by `smooth_corners` per `corner_style`: `"clothoid"` (symmetric Euler spiral, curvature ramps 0→1/R over `clothoid_transition_m`, optional constant arc, back to 0; falls back to arc if it can't fit), `"arc"` (circular fillet, `T = R_min·tan(δ/2)` clamped to half the leg, `R_eff = T/tan(δ/2)`, `κ ≤ 1/min_turn_radius_m`), or `"driver"` (Gaussian low-pass of the whole route with σ = `clothoid_transition_m` — starts turning *before* the corner, C-infinity smooth).
+- **`"human"`** — same shift as `"centered"`, then `human_corners`: each sharp vertex is shifted toward the **inside** of the turn by `human_cut_m·(δ/90°)` and the route is Gaussian-smoothed (σ = `clothoid_transition_m`), producing a driver-like early/wide corner. `human_cut_m` is calibrated from the ego tracks.
+- **`"human_centered"`** — the `"human"` curve, but instead of anchoring by arc-length the vehicle is **projected onto the generated curve** (nearest point within `±search_ahead_m`) and the lateral shift is taken there, so the near cross-track offset is minimised (≈ 0) — the offset-reduction of `"centered"` applied to the human curve.
 
-See `docs/project_route_function.md` for the full math derivation.
+The behind-stub is never smoothed. See `docs/project_route_function.md` for the full math.
 
 ### 3.7 Viewer (`viewer/`)
 
@@ -232,15 +247,15 @@ See `docs/project_route_function.md` for the full math derivation.
 
 - **Panorama (left):** the whole planned route, with **waypoints numbered 1,2,3,…** and direction arrowheads, plus a small dot at the car's current position.
 - **BEV (center-top):** the planned route (light) plus the accumulated driven trajectory (bold) plus an oriented car marker at the true pose. It uses a fixed transform and is drawn north-up.
-- **Driver-view (center-bottom):** the body-frame path computed live by `ProjectRoute.projectRoute` — car at the origin, `+x` up (forward), `+y` left. Ticking the **perspective** checkbox switches the panel into a **windshield 3D view**: the route is projected through a forward-looking pinhole camera onto the road plane ahead, drawn with a sky and horizon line, a perspective ground grid for depth, and the trajectory as a ribbon that is wide near the car and **narrows toward the vanishing point** on the horizon (with a dashed centerline). The driver's position is anchored at bottom-center by a **hood band, a forward center line, and an ego arrow**. The default camera is ~1.4 m high, pitched down ~10°, ~70° horizontal field of view, principal point centered; these plus the ribbon half-width are exposed as `PERSP` constants in `viewer.js`.
-- **Algorithm selector (`#algo-select`):** `Raw (keep offset)` / `Centered (no offset)` / `Smoothed (drivable corners)` — maps directly to `ProjectConfig.strategy`. Changing it re-renders the current frame instantly (no reload).
-- **Corner-style selector (`#corner-style`):** `arc` (circular-arc fillet) or `clothoid` (**default**, Euler spiral with linear curvature ramp); visible when `Smoothed` is active. Maps to `ProjectConfig.corner_style`.
+- **Driver-view (center-bottom):** the body-frame path computed live by `ProjectRoute.projectRoute` — car at the origin, `+x` up (forward), `+y` left. It also **overlays the real driven trajectory (orange dashed)** vs the generated path (green) for comparison. Ticking the **perspective** checkbox switches the panel into a **windshield 3D view**: the route is projected through a forward-looking pinhole camera onto the road plane ahead, drawn with a sky and horizon line, a perspective ground grid for depth, and the trajectory as a ribbon that is wide near the car and **narrows toward the vanishing point** on the horizon (with a dashed centerline). The driver's position is anchored at bottom-center by a **hood band, a forward center line, and an ego arrow**. The default camera is ~1.4 m high, pitched down ~10°, ~70° horizontal field of view, principal point centered; these plus the ribbon half-width are exposed as `PERSP` constants in `viewer.js`.
+- **Algorithm selector (`#algo-select`):** `Raw` / `Centered` / `Smoothed` / `Human-like (cuts corners)` / `Centered human driving (min offset)` — maps to `ProjectConfig.strategy`; defaults to **Centered human driving**. Re-renders instantly (no reload).
+- **Corner-style selector (`#corner-style`):** `driver` (**default**, Gaussian low-pass, anticipatory) / `clothoid` (Euler spiral) / `arc` (circular); applies to the `Smoothed` strategy. Maps to `ProjectConfig.corner_style`.
 - **Parameter sliders:** six range inputs update `ProjectConfig` fields live:
   - `#p-radius` (`R_min`, 3–12 m, step 0.5) → `min_turn_radius_m`
   - `#p-behind` (behind, 0–10 m, step 1) → `behind_m`
   - `#p-ahead` (ahead, 20–100 m, step 5) → `ahead_m`
   - `#p-corner` (corner°, 5–45°, step 5) → `corner_angle_deg`
-  - `#p-transition` (transition, 0.5–8 m, step 0.5) → `clothoid_transition_m`; active with `clothoid` corner style
+  - `#p-transition` (transition, 0.5–15 m, step 0.5) → `clothoid_transition_m`; the smoothing/anticipation width for `clothoid`, `driver`, and `human`/`human_centered` (bigger = wider, earlier, smoother)
 - **Live compute architecture:** the monotonic cursor (`cursor_s`) is memoized frame-by-frame at the default matching parameters. Changing a slider or the algo selector recomputes only the body-frame path from the already-known cursor — the match does not re-run. This makes slider interaction instant even on long cases.
 - **Controls:** play/pause, step ±1, scrubber, speed ×0.5/×1/×2. Selecting a case loads its JSON and resets to frame 0.
 - **Anti-flicker:** each figure is a `<canvas>` with a **fixed world→screen transform** computed once from the route bounds (so there is no mid-play pan or zoom). The static layer (route, panorama) is drawn once onto an offscreen canvas and then copied in ("blitted"); only the car marker and the slice are redrawn each frame, via `requestAnimationFrame` throttled to 10 Hz.
@@ -364,6 +379,4 @@ See `docs/project_route_function.md` for the full math derivation.
 
 *Self-check: (a) every information point from the original spec — requirements, non-goals, coordinate conventions, the two-halves approach and rejected alternatives, the full component/algorithm/transform/simulation/JSON/viewer description, the error-handling table, all test tables and the case matrix, the acceptance criteria, and the TBDs — is carried over here. (b) Constraint wording ("must not add smoothing", "never drop a frame", "no extrapolation", "only", "default", the tier/window/cap numbers) and technical identifiers (file names, `cursor_s`, `AHEAD`/`BEHIND`/`W_SEARCH`/`EPS_BACK`/`GATE`, `end_flag`, `est_lat_dev`, `gt_s`/`gt_seg`, etc.) are preserved verbatim; the added along-track-metric note is flagged explicitly as an implementation note, not part of the original text.*
 
-> **Update 2026-07-04 (driver-like):** added `corner_style="driver"` (now the demo default) — a Gaussian low-pass of the route that starts the turn *before* the corner and is C-infinity smooth (anticipatory, human-like). `transition` sets the anticipation width; `R_min` does not apply. Parity-tested vs the JS twin.
-
-> **Update 2026-07-05 (human strategy):** added a 4th strategy `strategy="human"` (now the demo default) — centred + **inside corner-cut** (`human_cut_m`≈2.2 m @90°, calibrated from ego tracks) + anticipatory Gaussian smoothing, mimicking a driver taking corners early/wide. NOTE: analysis of the ego tracks showed most of the gap to the planned route is a **constant lane offset (~2.8 m)** the human drove, which `centered` removes; corner-cutting addresses the smaller residual corner-shape difference.
+*(Revision history for the strategy work — `driver` corner style, `human`, and `human_centered` — is folded into the "Current state" summary at the top and the §2 / §3.6.1 / §3.7 tables, which are authoritative.)*

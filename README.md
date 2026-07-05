@@ -56,14 +56,17 @@ PORT=9000 ./run.sh  # override the port (default 8000)
   **perspective** checkbox to switch into a windshield 3D view (horizon, ground
   grid, route as a ribbon narrowing toward the vanishing point). Camera constants
   live in `PERSP` in `viewer.js`.
-  - **Algorithm selector** — `Raw (keep offset)` / `Centered (no offset)` /
-    `Smoothed (drivable corners)` / `Human-like (cuts corners)` — maps to
-    `ProjectConfig.strategy`. **Human-like** cuts each corner toward the inside
-    by a data-calibrated amount (`human_cut_m`, ≈2.2 m at 90°) then anticipatory-
-    smooths it, mimicking how a driver takes a corner early and wide. Raw keeps
+  - **Algorithm selector** — `Raw` / `Centered` / `Smoothed` / `Human-like (cuts
+    corners)` / `Centered human driving (min offset)` — maps to
+    `ProjectConfig.strategy`; defaults to **Centered human driving**. Raw keeps
     the lateral cross-track offset visible; Centered removes it (anchor at
-    `y = 0`); Smoothed additionally replaces sharp corners with a smooth fillet
-    (curvature ≤ 1/R_min on non-degenerate legs).
+    `y = 0`); Smoothed replaces sharp corners with a smooth fillet
+    (curvature ≤ 1/R_min on non-degenerate legs); **Human-like** additionally
+    cuts each corner toward the inside by a calibrated amount (`human_cut_m`,
+    ≈2.2 m at 90°) + anticipatory smoothing, mimicking a driver's early/wide
+    line; **Centered human driving** is Human-like but projects the vehicle onto
+    the generated curve (nearest point) and centers there, minimising the near
+    cross-track offset (≈0).
   - **Corner-style selector** (`#corner-style`; only affects the Smoothed strategy)
     — `driver-like` (**default**; Gaussian low-pass — starts turning *before* the
     corner and is C-infinity smooth, mimicking how a human anticipates a turn;
@@ -106,31 +109,37 @@ frame the function:
 3. **Constructs the body-frame path** over `[cursor_s − behind_m, cursor_s + ahead_m]`
    (defaults: 5 m behind, 70 m ahead, 0.5 m step) according to the chosen strategy:
 
-| Strategy | Lateral offset | Corner smoothing |
+| Strategy | Lateral offset | Corner treatment |
 |----------|---------------|-----------------|
 | `"raw"` | kept | none |
 | `"centered"` | removed (anchor at `y = 0`) | none |
-| `"smoothed"` | removed | circular-arc fillet on forward portion |
+| `"smoothed"` | removed | corner fillet, `corner_style` = `driver` / `clothoid` / `arc` |
+| `"human"` | removed at anchor | inside corner-**cut** (calibrated) + anticipatory smoothing |
+| `"human_centered"` | **minimised** (vehicle projected onto the curve) | same as `human` (near offset ≈ 0) |
+
+`"smoothed"`, `"human"`, and `"human_centered"` transform the route **once in
+world space** (cached) and re-window that fixed curve each frame, so the corner
+stays stable frame-to-frame (no jitter).
 
 4. **Returns** `ProjectOutput`: `path` (`[[x,y],…]` body frame), `cursor_s`,
    `lat_dev`, `matched_seg`, `end_flag`, and the next `state`.
 
-**Smoothed corners — arc or clothoid.** The forward portion of the `"smoothed"`
-path is processed by `smooth_corners` in `smoothing.py`:
+**Corner treatment.** `smooth_corners` in `smoothing.py` (RDP vertex detection →
+per-`corner_style` fillet → resample at `sample_ds_m`) offers three shapes for the
+`"smoothed"` strategy:
+- `"arc"` — circular fillet, `T = min(R_min·tan(δ/2), ½ leg)`, `κ ≤ 1/R_min`; curvature jumps 0→1/R at entry.
+- `"clothoid"` — Euler spiral, curvature ramps linearly 0→1/R→0 over `clothoid_transition_m` (no jump); falls back to arc on short legs.
+- `"driver"` (default) — Gaussian low-pass of the whole route (σ = `clothoid_transition_m`); starts turning *before* the corner, C∞ smooth.
 
-1. **RDP simplification** (tolerance `simplify_eps_m`, default 0.20 m) detects
-   the real geometric vertices.
-2. **Corner fillet** (shape set by `corner_style`, default `"clothoid"`):
-   - `"arc"` — circular-arc fillet: tangent length `T = min(R_min · tan(δ/2), half each leg)`,
-     effective radius `R_eff = T / tan(δ/2)`. Curvature jumps from 0 to `1/R` at
-     the tangent point.
-   - `"clothoid"` — Euler spiral with linear curvature ramp 0→1/R over
-     `clothoid_transition_m` (default 4.0 m; calibration measured 1.5 m), an optional
-     constant-curvature arc, then 1/R→0. No curvature discontinuity at entry or
-     exit. Falls back to an arc for tight corners where the legs are too short.
-   For non-degenerate legs, peak curvature `κ ≤ 1/R_min`. The behind-stub is
-   never smoothed.
-3. **Uniform resample** at `sample_ds_m` restores even spacing.
+The **`"human"`** strategy instead uses `human_corners`: it shifts each corner
+vertex toward the **inside** of the turn by `human_cut_m·(δ/90°)` (≈2.2 m at 90°,
+calibrated from the ego tracks) then Gaussian-smooths — a driver-like early/wide
+line. **`"human_centered"`** is the same curve but projects the vehicle onto it
+(nearest point) and centers there, minimising the near cross-track offset. Both
+`clothoid_transition_m` (default **8 m**, slider 0.5–15) and `min_turn_radius_m`
+(default **8 m**) are set for a smooth feel; for `driver`/`human`/`human_centered`
+the `transition` slider is the one width/smoothness knob (`R_min`/`corner_style`
+don't apply). The behind-stub is never smoothed.
 
 The JS twin (`viewer/project_route.js`, `window.ProjectRoute`) implements the
 same math; parity is verified to 1e-3 m by `tests/e2e/test_parity_py_js.py`.
