@@ -20,29 +20,7 @@
   </aside>
   <main id="center">
     <div class="fig"><h3>BEV (top-down)</h3><canvas id="bev" width="560" height="300"></canvas></div>
-    <div class="fig"><h3>Driver view (+x up, +y left)
-      <label>algo
-        <select id="algo-select">
-          <option value="raw">Raw (keep offset)</option>
-          <option value="centered">Centered (no offset)</option>
-          <option value="smoothed">Smoothed (drivable corners)</option>
-          <option value="human">Human-like (cuts corners)</option>
-          <option value="human_centered" selected>Centered human driving (min offset)</option>
-        </select></label>
-      <label><input type="checkbox" id="persp-toggle"> perspective</label>
-      <div id="algo-params">
-        <label>R_min <input type="range" id="p-radius" min="3" max="12" step="0.5" value="8"><span id="p-radius-v">8.0</span> m</label>
-        <label>behind <input type="range" id="p-behind" min="0" max="10" step="1" value="5"><span id="p-behind-v">5</span> m</label>
-        <label>ahead <input type="range" id="p-ahead" min="20" max="100" step="5" value="40"><span id="p-ahead-v">40</span> m</label>
-        <label>corner° <input type="range" id="p-corner" min="5" max="45" step="5" value="10"><span id="p-corner-v">10</span>°</label>
-        <label>corner
-          <select id="corner-style">
-            <option value="driver" selected>driver-like</option>
-            <option value="clothoid">clothoid</option>
-            <option value="arc">arc</option>
-          </select></label>
-        <label>transition <input type="range" id="p-transition" min="0.5" max="15" step="0.5" value="8"><span id="p-transition-v">8.0</span> m</label>
-      </div></h3>
+    <div class="fig"><h3>Driver view (+x up, +y left)</h3>
       <canvas id="driver" width="560" height="300"></canvas></div>
     <div id="controls">
       <button id="btn-step-back">◀</button>
@@ -55,6 +33,34 @@
     </div>
   </main>
   <aside id="right">
+    <h2>Projection</h2>
+    <div id="panel">
+      <label class="ctl-row">Algorithm
+        <select id="algo-select">
+          <option value="raw">Raw (keep offset)</option>
+          <option value="centered">Centered (no offset)</option>
+          <option value="smoothed">Smoothed (drivable corners)</option>
+          <option value="human">Human-like (cuts corners)</option>
+          <option value="human_centered" selected>Centered human driving</option>
+        </select></label>
+      <label class="chk"><input type="checkbox" id="persp-toggle"> Perspective (windshield 3D)</label>
+
+      <div class="cap">Corner shaping <span class="hint">smoothed / human</span></div>
+      <label class="ctl-row">Corner style
+        <select id="corner-style">
+          <option value="driver" selected>driver-like</option>
+          <option value="clothoid">clothoid</option>
+          <option value="arc">arc</option>
+        </select></label>
+      <div class="slider"><span>R&nbsp;min</span><input type="range" id="p-radius" min="3" max="12" step="0.5" value="8"><b id="p-radius-v">8.0</b><i>m</i></div>
+      <div class="slider"><span>corner</span><input type="range" id="p-corner" min="5" max="45" step="5" value="10"><b id="p-corner-v">10</b><i>°</i></div>
+      <div class="slider"><span>transition</span><input type="range" id="p-transition" min="0.5" max="15" step="0.5" value="8"><b id="p-transition-v">8.0</b><i>m</i></div>
+
+      <div class="cap">Look-ahead window</div>
+      <div class="slider"><span>behind</span><input type="range" id="p-behind" min="0" max="10" step="1" value="5"><b id="p-behind-v">5</b><i>m</i></div>
+      <div class="slider"><span>ahead</span><input type="range" id="p-ahead" min="20" max="100" step="5" value="40"><b id="p-ahead-v">40</b><i>m</i></div>
+    </div>
+
     <h2>Telemetry</h2>
     <table id="telemetry">
       <tr><td>heading</td><td id="tm-heading">–</td></tr>
