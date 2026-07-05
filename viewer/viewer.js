@@ -329,7 +329,7 @@ function computeBodyPath(c, frameIdx) {
   // re-run project_route from the known cursor: pass a state whose cursor equals
   // this frame's cursor and a pose on that spot so match() returns it unchanged.
   const out = ProjectRoute.projectRoute(ROUTE_JS, f.meas_pose, cfg, state);
-  return out.path.map(([x, y]) => ({ x, y }));
+  return { pts: out.path.map(([x, y]) => ({ x, y })), yaw: out.yaw_used };
 }
 
 function drawBev() {
@@ -377,15 +377,19 @@ function drawDriver() {
   const ppm = (h - 20) / (aheadLive + behindLive);
   const toX = (by) => w / 2 - by * ppm;
   const toY = (bx) => h - 10 - (bx + behindLive) * ppm;
-  // overlay: the real driven trajectory (ego track) in the current body frame,
-  // so the generated guidance path (green) can be compared against reality (orange).
+  // compute the generated path first — it also reports the frame yaw it used
+  // (for human_centered that is the curve tangent, not the vehicle heading), so
+  // the overlay is drawn in the SAME frame and stays comparable.
+  const cp = computeBodyPath(c, STATE.frame);
+  const pts = cp.pts, yawUse = cp.yaw;
+  // overlay: the real driven trajectory (ego track) in that frame (orange).
   const cur = f.meas_pose;
   ctx.strokeStyle = "rgba(230,140,0,0.9)"; ctx.lineWidth = 2; ctx.setLineDash([5, 4]);
   ctx.beginPath();
   let prevb = null;
   for (let i = 0; i < c.frames.length; i++) {
     const g = c.frames[i].meas_pose; if (!g) continue;
-    const b = worldToBody(cur.e, cur.n, g.e, g.n, cur.h);
+    const b = worldToBody(cur.e, cur.n, g.e, g.n, yawUse);
     if (b.x < -behindLive || b.x > aheadLive) { prevb = null; continue; }
     const x = toX(b.y), y = toY(b.x);
     if (!prevb || Math.hypot(b.x - prevb.x, b.y - prevb.y) > 3.0) ctx.moveTo(x, y);
@@ -394,7 +398,6 @@ function drawDriver() {
   }
   ctx.stroke(); ctx.setLineDash([]);
 
-  const pts = computeBodyPath(c, STATE.frame);
   ctx.strokeStyle = "#2e9e5b"; ctx.lineWidth = 3; ctx.beginPath();
   pts.forEach((b, i) => {
     const x = toX(b.y), y = toY(b.x);
@@ -471,7 +474,7 @@ function drawWindshield(ctx, f) {
 
   // route ribbon: edges offset +/- half_width in the body frame
   const HW = PERSP.half_width;
-  const pts = computeBodyPath(STATE.case, STATE.frame).filter(p => p.x >= 0);
+  const pts = computeBodyPath(STATE.case, STATE.frame).pts.filter(p => p.x >= 0);
   const left = [], right = [], mid = [];
   for (const b of pts) {
     if (b.x <= 0.05) continue;

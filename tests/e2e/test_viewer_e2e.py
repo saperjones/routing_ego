@@ -331,7 +331,7 @@ def test_smoothed_rounds_sharp_corner(viewer):
         page.wait_for_timeout(80)
         return page.evaluate("""() => {
           const c = STATE.case, f = STATE.frame;
-          const p = computeBodyPath(c, f).filter(q => q.x >= 0);
+          const p = computeBodyPath(c, f).pts.filter(q => q.x >= 0);
           let m = 0;
           for (let i = 2; i < p.length; i++) {
             const a = Math.atan2(p[i-1].y-p[i-2].y, p[i-1].x-p[i-2].x);
@@ -394,7 +394,7 @@ def test_clothoid_smoother_than_arc(viewer):
         page.select_option("#corner-style", style)
         page.wait_for_timeout(80)
         return page.evaluate("""() => {
-          const p = computeBodyPath(STATE.case, STATE.frame).filter(q => q.x >= 0);
+          const p = computeBodyPath(STATE.case, STATE.frame).pts.filter(q => q.x >= 0);
           const r = [];
           for (let i = 1; i < p.length; i++)
             r.push(Math.atan2(p[i].y - p[i-1].y, p[i].x - p[i-1].x));

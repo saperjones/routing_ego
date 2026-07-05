@@ -3,7 +3,7 @@
 > **Current state (2026-07-05) — read this first; §2/§3.6.1/§3.7 tables below are authoritative.**
 > - **Five output strategies:** `raw`, `centered`, `smoothed`, `human`, `human_centered`. The viewer defaults to **`human_centered`**.
 > - **`human`** = centered + inside corner-cut (`human_cut_m` ≈ 2.2 m @90°, calibrated from ego tracks) + anticipatory Gaussian smoothing — mimics a driver taking a corner early and wide.
-> - **`human_centered`** = `human`, but the vehicle is **projected onto the generated curve** (nearest point) and centered there — minimises the residual cross-track offset (near offset ≈ 0).
+> - **`human_centered`** = `human`, but the vehicle is **projected onto the generated curve** (nearest point) and the frame is oriented along the **curve tangent** there — so the path leaves the car pointing **straight forward** with near cross-track offset ≈ 0 (both lateral offset AND heading angle neutralised). The driver-view overlay is drawn in the same frame.
 > - **`smoothed`** rounds each corner with a `corner_style`: `driver` (Gaussian low-pass, starts turning before the corner; viewer default), `clothoid` (Euler spiral, curvature-continuous), or `arc` (circular). 
 > - Both `smoothed` and `human` smooth the route **once in world space** (cached) and re-window that fixed curve each frame, so the corner does not jitter frame-to-frame.
 > - Smooth-by-default values: `min_turn_radius_m = 8`, `clothoid_transition_m = 8` (also the Gaussian σ / anticipation width for driver & human; slider 0.5–15). The clothoid calibration measured a 1.5 m entry ramp; the default is raised for a gentler feel.

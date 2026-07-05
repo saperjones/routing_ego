@@ -273,29 +273,34 @@
 
   function projectRoute(route, pose, cfg, state) {
     const m = match(route, pose.e, pose.n, pose.h, cfg, state);
-    let geom, cs, sampleAt;
+    let geom, cs, sampleAt, yawUse = pose.h;
     if (cfg.strategy === "smoothed" || cfg.strategy === "human" || cfg.strategy === "human_centered") {
       geom = getSmoothed(route, cfg);
       cs = route.length > 1e-9 ? m.cursor_s * (geom.length / route.length) : m.cursor_s;
-      if (cfg.strategy === "human_centered") cs = projectOnto(geom, pose.e, pose.n, cs, cfg.search_ahead_m);
+      if (cfg.strategy === "human_centered") {
+        cs = projectOnto(geom, pose.e, pose.n, cs, cfg.search_ahead_m);
+        const [tx0, ty0] = smPointAtS(geom, cs);
+        const [tx1, ty1] = smPointAtS(geom, Math.min(cs + Math.max(cfg.sample_ds_m, 0.5), geom.length));
+        if (tx1 !== tx0 || ty1 !== ty0) yawUse = Math.atan2(ty1 - ty0, tx1 - tx0);  // frame forward = curve tangent
+      }
       sampleAt = (s) => smPointAtS(geom, s);
     } else {
       geom = route; cs = m.cursor_s;
       sampleAt = (s) => pointAtS(route, s);
     }
     const [ax, ay] = sampleAt(cs);
-    const latShift = toBody(ax - pose.e, ay - pose.n, pose.h)[1];
+    const latShift = toBody(ax - pose.e, ay - pose.n, yawUse)[1];
     const lo = Math.max(cs - cfg.behind_m, 0), hi = Math.min(cs + cfg.ahead_m, geom.length);
     const n = Math.floor((hi - lo) / cfg.sample_ds_m) + 1;
     const path = [];
     for (let k = 0; k < n; k++) {
       const s = lo + k * cfg.sample_ds_m, [qx, qy] = sampleAt(s);
-      let [bx, by] = toBody(qx - pose.e, qy - pose.n, pose.h);
+      let [bx, by] = toBody(qx - pose.e, qy - pose.n, yawUse);
       if (cfg.strategy !== "raw") by -= latShift;
       path.push([bx, by]);
     }
     return { path, cursor_s: m.cursor_s, lat_dev: m.lat_dev,
-             matched_seg: m.matched_seg, end_flag: m.end_flag,
+             matched_seg: m.matched_seg, end_flag: m.end_flag, yaw_used: yawUse,
              state: { cursor_s: m.cursor_s, initialized: true } };
   }
 

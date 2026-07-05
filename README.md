@@ -65,8 +65,9 @@ PORT=9000 ./run.sh  # override the port (default 8000)
     cuts each corner toward the inside by a calibrated amount (`human_cut_m`,
     ≈2.2 m at 90°) + anticipatory smoothing, mimicking a driver's early/wide
     line; **Centered human driving** is Human-like but projects the vehicle onto
-    the generated curve (nearest point) and centers there, minimising the near
-    cross-track offset (≈0).
+    the generated curve (nearest point) and orients the frame along the curve
+    tangent there, so the path leaves the car pointing **straight forward**
+    (near offset ≈ 0 and heading angle neutralised).
   - **Corner-style selector** (`#corner-style`; only affects the Smoothed strategy)
     — `driver-like` (**default**; Gaussian low-pass — starts turning *before* the
     corner and is C-infinity smooth, mimicking how a human anticipates a turn;

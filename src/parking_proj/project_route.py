@@ -163,9 +163,15 @@ def project_route(route, pose_e, pose_n, yaw, config, state=None, speed=None):
         geom = _get_world(route, cfg)
         cs = cursor_s * (geom.length / route.length) if route.length > 1e-9 else cursor_s
         # "human_centered": project the vehicle onto the generated curve (nearest
-        # point) and center there, minimising the residual offset.
+        # point) and center there, minimising the residual offset, AND orient the
+        # frame along the curve tangent at that point so the path leaves the car
+        # pointing straight forward (heading angle neutralised, not just offset).
         if cfg.strategy == "human_centered":
             cs = _project_onto(geom, pose_e, pose_n, cs, cfg.search_ahead_m)
+            tx0, ty0 = geom.point_at_s(cs)
+            tx1, ty1 = geom.point_at_s(min(cs + max(cfg.sample_ds_m, 0.5), geom.length))
+            if (tx1, ty1) != (tx0, ty0):
+                yaw = math.atan2(ty1 - ty0, tx1 - tx0)   # frame forward = curve tangent
     else:
         geom = route
         cs = cursor_s
