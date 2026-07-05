@@ -8,6 +8,10 @@
 ./run.sh gen-real   # prebake real datasets from dataset/ -> out/real/ (+ OSM tiles)
 ./run.sh test       # unit + acceptance suite
 ./run.sh e2e        # headless-browser end-to-end suite
+
+# offline post-processing: bag -> per-frame ego-frame path via Python project_route
+python -m parking_proj.offline_processing_routing_projection \
+  --ego-json <ego_route_llh.json> --route-json <planned_route.json> --out <out.json> [--strategy ...]
 ```
 
 ## Architecture / invariants
@@ -36,5 +40,13 @@
   satellite imagery (e.g. Esri World Imagery uses `.../{z}/{y}/{x}`).
 - `geo.py` is the single place WGS-84 ⇄ ENU conversion happens; nothing else
   touches lat/lon.
+- `offline_processing_routing_projection.py` is the offline CLI interface: it
+  loads a bag's `ego_route_llh.json` + `planned_route.json` (via
+  `realdata.load_dataset_files`) and drives the authoritative Python
+  `project_route` per frame, writing one ego-frame path record per input frame
+  (timestamps synced) plus a `status`/exit-code indicator. All params are CLI
+  flags — no config file. `run.sh serve` runs `parking_proj.viewer_server`
+  (static files + a `POST /api/offline` endpoint) so the viewer's "Test offline"
+  button can run it live and overlay the Python path against the JS twin.
 - All randomness is seeded (`numpy.random.default_rng`), so regeneration is
   bit-identical.

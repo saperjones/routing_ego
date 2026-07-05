@@ -110,8 +110,9 @@ def base_url():
                        cwd=REPO, env=env, check=True)
     port = _free_port()
     proc = subprocess.Popen(
-        [sys.executable, "-m", "http.server", str(port)],
-        cwd=REPO, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        [sys.executable, "-m", "parking_proj.viewer_server", str(port)],
+        cwd=REPO, env=dict(os.environ, PYTHONPATH=str(SRC)),
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
     )
     try:
         assert _wait_http(port, "/viewer/index.html"), "static server did not start"
@@ -299,6 +300,35 @@ def test_compare_all_tiles_five_strategies(viewer):
     page.wait_for_timeout(80)
     assert page.locator("#compare-fig").is_hidden()
     assert page.locator("#driver-fig").is_visible()
+
+
+def test_offline_button_processes_and_overlays(viewer):
+    """On the Real tab, 'Test offline (Python)' POSTs to /api/offline, and the
+    driver view overlays the Python offline path against the live JS path."""
+    page, _ = viewer
+    if page.is_checked("#compare-toggle"):
+        page.uncheck("#compare-toggle")
+    page.click("#tab-real")
+    page.wait_for_selector("#case-list li:not(.group-header)")
+    page.locator("#case-list li:not(.group-header)").first.click()
+    page.wait_for_function("() => typeof STATE !== 'undefined' && STATE.case"
+                           " && STATE.case.mode === 'real' && STATE.mode === 'real'", timeout=8000)
+    # button enables once a real case is loaded and compare is off
+    page.wait_for_function("() => !document.getElementById('btn-offline').disabled", timeout=4000)
+    page.click("#btn-offline")
+    # processing runs the full Python pipeline on the dataset — allow time
+    page.wait_for_function(
+        "() => document.getElementById('offline-status').textContent.indexOf('Done') === 0",
+        timeout=90000)
+    n_off = page.evaluate("() => STATE.offline && STATE.offline.frames.length")
+    n_case = page.evaluate("() => STATE.case.frames.length")
+    assert n_off and n_off == n_case
+    assert page.evaluate(_NONBLANK, "#driver") is True
+    # offline shows a single algorithm -> disabled while compare-all is on
+    page.check("#compare-toggle")
+    assert not page.is_enabled("#btn-offline")
+    assert page.evaluate("() => STATE.offline") is None   # compare clears it
+    page.uncheck("#compare-toggle")
 
 
 def test_no_js_errors(viewer):

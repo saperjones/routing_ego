@@ -304,6 +304,43 @@ the BEV falls back to a gray grid and the route/track/arrows still render.
 
 ---
 
+## Offline processing (`offline_processing_routing_projection.py`)
+
+Post-process a pre-processed bag into a per-frame **ego-frame routing path** by
+driving the authoritative Python `project_route` — no browser, no config file
+(every parameter is a CLI flag):
+
+```bash
+python -m parking_proj.offline_processing_routing_projection \
+  --ego-json   dataset/<id>/ego_route_llh.json \
+  --route-json dataset/<id>/route_generation_result/planned_route.json \
+  --out        out/offline_<id>.json \
+  --strategy human_centered --ahead-m 40 --corner-style clothoid
+```
+
+Every `ProjectConfig` field is an optional flag (`--strategy`, `--behind-m`,
+`--ahead-m`, `--sample-ds-m`, `--search-ahead-m`, `--search-back-m`,
+`--heading-gate-deg`, `--min-turn-radius-m`, `--corner-angle-deg`,
+`--simplify-eps-m`, `--corner-style`, `--clothoid-transition-m`,
+`--human-cut-m`), defaulting to its `ProjectConfig` default.
+
+**Output** is one record per input ego frame (timestamps synced to the input),
+each with `timestamp_us`, the ego pose (`e,n,yaw,lat,lon`), `speed`, the `path`
+(`[[x,y],…]` body frame, `+x` forward / `+y` left, meters), and the
+`cursor_s`/`lat_dev`/`matched_seg`/`end_flag` telemetry. A top-level `status`
+object (`{generated, n_frames, message}`) plus the process **exit code**
+(`0` = success) signal whether results were generated.
+
+**In the viewer:** served via `./run.sh` (which runs `parking_proj.viewer_server`
+— a static server plus a `POST /api/offline` endpoint), the Real-data tab has a
+**Test offline (Python)** button. Pick a dataset + algorithm, click it
+("Start processing…" → "Done — check the results"), and the driver view overlays
+the Python offline path (solid green) against the live JS-twin path (dashed blue)
+for the selected algorithm — a visual parity check. Disabled while **compare
+all** is on and on the Simulation tab.
+
+---
+
 ## Algorithm reference (detailed mathematics)
 
 > **Update 2026-07-04:** smoothing is applied **once in world space** to the whole route (not per-frame on the body-frame window), giving a temporally stable corner; shipped defaults `min_turn_radius_m = 8.0`, `clothoid_transition_m = 8.0` (calibration value 1.5 m).

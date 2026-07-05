@@ -63,7 +63,8 @@ serve() {
     elif command -v xdg-open >/dev/null 2>&1; then
         ( sleep 1; xdg-open "$URL" ) &
     fi
-    exec "$PY" -m http.server "$PORT"   # served from the repo ROOT so ../out/ resolves
+    # custom server: static files (repo ROOT, so ../out/ resolves) + POST /api/offline
+    exec env PYTHONPATH=src "$PY" -m parking_proj.viewer_server "$PORT"
 }
 
 case "${1:-serve}" in

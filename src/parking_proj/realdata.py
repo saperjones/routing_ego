@@ -54,11 +54,22 @@ def is_dataset_dir(path):
 
 
 def load_dataset(path):
-    with open(_ego_path(path)) as fh:
+    """Load a dataset directory (ego_route_llh.json + route_generation_result/
+    planned_route.json). Thin wrapper over load_dataset_files."""
+    return load_dataset_files(_ego_path(path), _planned_path(path),
+                              dataset_id=os.path.basename(os.path.normpath(path)))
+
+
+def load_dataset_files(ego_path, planned_path, dataset_id=None):
+    """Load from explicit file paths. Same parsing as load_dataset; used by the
+    offline CLI where the two files may live anywhere."""
+    with open(ego_path) as fh:
         ego = json.load(fh)
-    with open(_planned_path(path)) as fh:
+    with open(planned_path) as fh:
         pr = json.load(fh)
     pts = ego["points"]
+    if dataset_id is None:
+        dataset_id = os.path.basename(os.path.dirname(os.path.normpath(ego_path)))
 
     # planned route + waypoints are WGS-84 [lat, lon]
     planned = np.array(pr["planned_route"], float)          # (K,2) lat,lon
@@ -79,12 +90,12 @@ def load_dataset(path):
     if abs(scale - 1.0) > 0.05:
         warnings.warn(
             f"boot->ENU scale {scale:.3f} deviates from 1.0 for "
-            f"{os.path.basename(os.path.normpath(path))}; heading offset may be unreliable"
+            f"{dataset_id}; heading offset may be unreliable"
         )
 
     yaw_boot = np.array([p["yaw_boot"] for p in pts], float)
     return RealDataset(
-        dataset_id=os.path.basename(os.path.normpath(path)),
+        dataset_id=dataset_id,
         route=route,
         route_llh=planned,
         ego_llh=ego_wgs,

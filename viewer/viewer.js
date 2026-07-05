@@ -1,4 +1,5 @@
-const STATE = { case: null, frame: 0, playing: false, speed: 1, mode: "real" };
+const STATE = { case: null, frame: 0, playing: false, speed: 1, mode: "real",
+                offline: null };   // offline: {frames:[...], strategy} when loaded
 
 const GROUP_NAMES = {
   A: "Straight", B: "Smooth turn", C: "Near-90 corner", D: "S-shape",
@@ -115,11 +116,14 @@ async function selectCase(caseId, li) {
   document.querySelectorAll("#case-list li").forEach((x) => x.classList.remove("active"));
   if (li) li.classList.add("active");
   STATE.playing = false;
+  STATE.offline = null;                    // stale for the new case
   await loadCase(caseId);
   BEV_STATIC = null;
   BEVREAL_STATIC = null;
   ROUTE_JS_CASE = null;
   drawPanorama();
+  clearOffline();
+  updateOfflineButton();
   renderFrame();   // defined in Task 10
 }
 
@@ -130,6 +134,9 @@ function selectTab(mode) {
   document.getElementById("tab-real").classList.toggle("active", mode === "real");
   document.getElementById("tab-sim").classList.toggle("active", mode === "sim");
   STATE.case = null; STATE.playing = false;
+  STATE.offline = null;
+  clearOffline();
+  updateOfflineButton();
   loadIndex();
 }
 window.addEventListener("DOMContentLoaded", () => {
@@ -410,12 +417,24 @@ function drawDriverTopDown(cv, f, cfg, label) {
   }
   ctx.stroke(); ctx.setLineDash([]);
 
-  ctx.strokeStyle = "#2e9e5b"; ctx.lineWidth = 3; ctx.beginPath();
-  pts.forEach((b, i) => {
-    const x = toX(b.y), y = toY(b.x);
-    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
-  });
-  ctx.stroke();
+  // offline overlay (single view only): Python offline path (solid green) +
+  // live JS-twin path (dashed blue) for parity checking.
+  const off = (!label) ? offlineFramePath(STATE.frame) : null;
+  const drawPoly = (poly) => {
+    ctx.beginPath();
+    poly.forEach((b, i) => {
+      const x = toX(b.y), y = toY(b.x);
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+  };
+  if (off) {
+    ctx.strokeStyle = "#2e9e5b"; ctx.lineWidth = 3; drawPoly(off);          // offline (Python)
+    ctx.strokeStyle = "#2b6fd6"; ctx.lineWidth = 2; ctx.setLineDash([4, 4]); // live (JS)
+    drawPoly(pts); ctx.setLineDash([]);
+  } else {
+    ctx.strokeStyle = "#2e9e5b"; ctx.lineWidth = 3; drawPoly(pts);
+  }
   // car at origin (width=1.8m, height=3.6m, centered)
   ctx.fillStyle = "#cc3a3a";
   ctx.fillRect(toX(0.9), toY(1.8), 1.8 * ppm, 3.6 * ppm);
@@ -423,6 +442,11 @@ function drawDriverTopDown(cv, f, cfg, label) {
     // compact heading for a compare panel
     ctx.font = "11px sans-serif"; ctx.fillStyle = "#334";
     ctx.fillText(label, 6, 14);
+  } else if (off) {
+    ctx.font = "11px sans-serif";
+    ctx.fillStyle = "#2e9e5b"; ctx.fillText("— offline (Python)", 8, 16);
+    ctx.fillStyle = "#2b6fd6"; ctx.fillText("- - live (JS)", 8, 30);
+    ctx.fillStyle = "rgba(230,140,0,0.95)"; ctx.fillText("- - real trajectory", 8, 44);
   } else {
     // full legend for the single driver view
     ctx.font = "11px sans-serif";
@@ -515,7 +539,10 @@ function drawWindshield(ctx, f, cfg, label) {
 
   // route ribbon: edges offset +/- half_width in the body frame
   const HW = PERSP.half_width;
-  const pts = computeBodyPath(STATE.case, STATE.frame, cfg).pts.filter(p => p.x >= 0);
+  const livePts = computeBodyPath(STATE.case, STATE.frame, cfg).pts.filter(p => p.x >= 0);
+  const off = (!label) ? offlineFramePath(STATE.frame) : null;
+  const offFwd = off ? off.filter(p => p.x >= 0) : null;
+  const pts = offFwd || livePts;   // ribbon = offline path when loaded, else live
   const left = [], right = [], mid = [];
   for (const b of pts) {
     if (b.x <= 0.05) continue;
@@ -539,6 +566,18 @@ function drawWindshield(ctx, f, cfg, label) {
     for (const p of mid) ctx.lineTo(p.u, p.v);
     ctx.stroke(); ctx.setLineDash([]);
   }
+  // offline parity overlay: draw the live JS path as a dashed blue line so it can
+  // be compared against the offline ribbon (offline path is the ribbon above).
+  if (offFwd) {
+    const lp = [];
+    for (const b of livePts) { const p = project(b.x, b.y); if (p) lp.push(p); }
+    if (lp.length > 1) {
+      ctx.strokeStyle = "#2b6fd6"; ctx.lineWidth = 2; ctx.setLineDash([5, 5]);
+      ctx.beginPath(); ctx.moveTo(lp[0].u, lp[0].v);
+      for (const p of lp) ctx.lineTo(p.u, p.v);
+      ctx.stroke(); ctx.setLineDash([]);
+    }
+  }
 
   // driver anchor: a "hood" band across the bottom + an ego arrow marking the
   // car's position (bottom-center, pointing forward) so the view is clearly
@@ -554,7 +593,8 @@ function drawWindshield(ctx, f, cfg, label) {
   ctx.closePath(); ctx.fill();
 
   ctx.fillStyle = "#556"; ctx.font = "11px sans-serif";
-  ctx.fillText(label || "driver view (perspective)", 8, 16);
+  ctx.fillText(label || (offFwd ? "offline (Python, green) vs live (JS, blue)"
+                                : "driver view (perspective)"), 8, 16);
   if (f.end_flag) { ctx.fillStyle = "#cc3a3a"; ctx.fillText("route ends", 8, 30); }
 }
 
@@ -598,6 +638,71 @@ function updateTelemetry() {
   set("tm-verdict", v ? `${v.passed ? "PASS" : "FAIL"} (mis ${v.mismatches})` : "— (real data)");
 }
 
+// --- Offline (Python) processing ----------------------------------------
+// The offline path for a given frame (or null when nothing is loaded / frame
+// out of range). Shape mirrors ProjectOutput.path: [[x,y],...] -> [{x,y},...].
+function offlineFramePath(frameIdx) {
+  const o = STATE.offline;
+  if (!o || !o.frames) return null;
+  const fr = o.frames[frameIdx];
+  if (!fr || !fr.path) return null;
+  return fr.path.map(([x, y]) => ({ x, y }));
+}
+
+// Clear any loaded offline result and revert to the live view. Called whenever
+// the algorithm/sliders/case/tab change, so a shown offline path always matches
+// the settings it was computed with.
+function clearOffline(msg) {
+  const had = !!STATE.offline;
+  STATE.offline = null;
+  const el = document.getElementById("offline-status");
+  if (el) el.textContent = msg || "";
+  if (had && STATE.case) renderFrame();
+}
+
+function updateOfflineButton() {
+  const btn = document.getElementById("btn-offline");
+  if (!btn) return;
+  const compare = document.getElementById("compare-toggle").checked;
+  btn.disabled = STATE.mode !== "real" || compare || !STATE.case;
+  btn.title = STATE.mode !== "real"
+    ? "Offline test runs on real datasets only"
+    : compare ? "Disabled while 'compare all' is on (offline shows one algorithm)"
+              : "Run the Python project_route offline on this dataset and overlay the result";
+}
+
+async function runOffline() {
+  if (STATE.mode !== "real" || !STATE.case) return;
+  if (document.getElementById("compare-toggle").checked) return;
+  const btn = document.getElementById("btn-offline");
+  const el = document.getElementById("offline-status");
+  const cfg = currentConfig();
+  btn.disabled = true;
+  el.textContent = "Start processing…";
+  try {
+    const resp = await fetch("/api/offline", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ dataset_id: STATE.case.case_id, config: cfg }),
+    });
+    const data = await resp.json();
+    if (!resp.ok || !data.status || !data.status.generated) {
+      const m = (data.status && data.status.message) || `HTTP ${resp.status}`;
+      el.textContent = "Failed: " + m;
+      STATE.offline = null;
+    } else {
+      STATE.offline = { frames: data.frames, strategy: cfg.strategy };
+      el.textContent = `Done — you can check the results (${data.status.n_frames} frames, `
+        + `strategy "${cfg.strategy}"). Green = offline (Python), dashed blue = live (JS).`;
+      renderFrame();
+    }
+  } catch (e) {
+    el.textContent = "Failed: " + e;
+    STATE.offline = null;
+  } finally {
+    updateOfflineButton();
+  }
+}
+
 let lastTick = 0;
 function tick(ts) {
   if (STATE.playing && STATE.case) {
@@ -629,15 +734,21 @@ window.addEventListener("DOMContentLoaded", () => {
     const on = ev.target.checked;
     document.getElementById("driver-fig").style.display = on ? "none" : "";
     document.getElementById("compare-fig").style.display = on ? "" : "none";
+    clearOffline();                 // offline shows one algorithm; incompatible with compare
+    updateOfflineButton();
     renderFrame();
   };
-  document.getElementById("algo-select").onchange = () => renderFrame();
-  document.getElementById("corner-style").onchange = () => renderFrame();
+  // changing the algorithm or any slider invalidates a loaded offline result
+  document.getElementById("algo-select").onchange = () => { clearOffline(); renderFrame(); };
+  document.getElementById("corner-style").onchange = () => { clearOffline(); renderFrame(); };
   for (const id of ["p-radius", "p-behind", "p-ahead", "p-corner", "p-transition"]) {
     document.getElementById(id).oninput = (ev) => {
       const v = ev.target.value;
       document.getElementById(id + "-v").textContent = v;
+      clearOffline();
       renderFrame();
     };
   }
+  document.getElementById("btn-offline").onclick = runOffline;
+  updateOfflineButton();
 });
