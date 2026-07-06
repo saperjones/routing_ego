@@ -77,6 +77,7 @@ function drawPanorama() {
   const ctx = cv.getContext("2d");
   ctx.clearRect(0, 0, cv.width, cv.height);
   if (!c) return;
+  if (c.mode === "pre") { drawPanoramaPre(false); return; }
   const b = routeBounds(c);
   const T = fitTransform(cv, b.minE, b.maxE, b.minN, b.maxN);
   const { e, n } = routeXY(c);
@@ -129,20 +130,285 @@ async function selectCase(caseId, li) {
 
 window.addEventListener("DOMContentLoaded", loadIndex);
 
+function clearCanvas(id) {
+  const cv = document.getElementById(id);
+  if (cv) cv.getContext("2d").clearRect(0, 0, cv.width, cv.height);
+}
+
+// Enter/leave pre-processed mode: the projection path comes from the file, so
+// the live algorithm/window controls are disabled and a read-only caption shows
+// the config the offline run actually used.
+function applyPreMode(on) {
+  for (const id of ["algo-select", "corner-style", "p-radius", "p-behind",
+                    "p-ahead", "p-corner", "p-transition", "compare-toggle"]) {
+    const el = document.getElementById(id);
+    if (el) el.disabled = on;
+  }
+  const cap = document.getElementById("pre-config");
+  if (!cap) return;
+  if (on && STATE.case && STATE.case.config) {
+    const cf = STATE.case.config;
+    cap.style.display = "";
+    cap.textContent = `pre-processed output — strategy=${cf.strategy}, `
+      + `ahead=${cf.ahead_m} m, behind=${cf.behind_m} m, ds=${cf.sample_ds_m} m`;
+  } else {
+    cap.style.display = "none"; cap.textContent = "";
+  }
+}
+
 function selectTab(mode) {
   STATE.mode = mode;
   document.getElementById("tab-real").classList.toggle("active", mode === "real");
   document.getElementById("tab-sim").classList.toggle("active", mode === "sim");
+  document.getElementById("tab-pre").classList.toggle("active", mode === "pre");
   STATE.case = null; STATE.playing = false;
   STATE.offline = null;
   clearOffline();
+  // reset compare view back to the single driver view when switching tabs
+  const cmp = document.getElementById("compare-toggle");
+  if (cmp && cmp.checked) {
+    cmp.checked = false;
+    document.getElementById("driver-fig").style.display = "";
+    document.getElementById("compare-fig").style.display = "none";
+  }
+  const pre = mode === "pre";
+  document.getElementById("pre-picker").style.display = pre ? "" : "none";
+  document.getElementById("cases-head").style.display = pre ? "none" : "";
+  document.getElementById("case-list").style.display = pre ? "none" : "";
+  BEV_STATIC = null; BEVREAL_STATIC = null; ROUTE_JS_CASE = null;
+  applyPreMode(pre);
   updateOfflineButton();
-  loadIndex();
+  if (pre) {
+    document.getElementById("case-list").innerHTML = "";
+    document.getElementById("pre-status").textContent =
+      "Choose a folder containing routing_projection.json + planned_route.json.";
+    clearCanvas("bev"); clearCanvas("driver"); clearCanvas("panorama");
+  } else {
+    loadIndex();
+  }
 }
 window.addEventListener("DOMContentLoaded", () => {
   document.getElementById("tab-real").onclick = () => selectTab("real");
   document.getElementById("tab-sim").onclick = () => selectTab("sim");
+  document.getElementById("tab-pre").onclick = () => selectTab("pre");
 });
+
+// --- Pre-processed mode -------------------------------------------------
+// Visualize a colleague's offline output folder (ego_route_llh.json +
+// planned_route.json + routing_projection.json) with no algorithm re-run: the
+// per-frame body-frame path is read straight from routing_projection.json.
+
+// Cumulative length (m) of a WGS-84 [lat,lon] polyline (equirectangular; the
+// route spans tens of metres so the flat-earth error is negligible). Used only
+// for the telemetry progress %.
+function llhPathLenM(llh) {
+  const R = 6378137, d2r = Math.PI / 180;
+  let s = 0;
+  for (let i = 1; i < llh.length; i++) {
+    const [la1, lo1] = llh[i - 1], [la2, lo2] = llh[i];
+    const mlat = (la1 + la2) / 2 * d2r;
+    const dx = (lo2 - lo1) * d2r * Math.cos(mlat) * R;
+    const dy = (la2 - la1) * d2r * R;
+    s += Math.hypot(dx, dy);
+  }
+  return s;
+}
+
+// Pure builder (on window for unit testing): turn the parsed projection +
+// planned-route JSON into a synthetic "case" the existing real-data renderers
+// accept unchanged. `pose.lat/lon` is already WGS-84, so no GCJ-02 conversion.
+window.buildPreCase = function (projection, plannedRoute, folderName) {
+  const frames = (projection.frames || []).map((fr) => ({
+    meas_pose: { e: fr.pose.e, n: fr.pose.n, h: fr.pose.yaw },
+    meas_ll: { lat: fr.pose.lat, lon: fr.pose.lon },
+    speed: fr.speed,
+    est_lat_dev: fr.lat_dev,
+    true_lat_dev: null,        // no ground truth for pre-processed data
+    cursor_s: fr.cursor_s,
+    matched_seg: fr.matched_seg,
+    end_flag: !!fr.end_flag,
+    path: fr.path || [],
+  }));
+  const route_llh = (plannedRoute && plannedRoute.planned_route) || [];
+  const route_waypoints = (plannedRoute && plannedRoute.waypoints) || [];
+  const ego_track_llh = frames.map((f) => [f.meas_ll.lat, f.meas_ll.lon]);
+  const spaced = (n, k) => {
+    const out = []; if (n <= 1) return out;
+    const step = Math.max(1, Math.floor(n / k));
+    for (let i = 0; i < n - 1; i += step) out.push(i);
+    return out;
+  };
+  return {
+    mode: "pre",
+    case_id: folderName || "pre-processed",
+    name: folderName || "pre-processed",
+    route_llh, route_waypoints, ego_track_llh,
+    route_arrow_idx: spaced(route_llh.length, 8),
+    ego_arrow_idx: spaced(ego_track_llh.length, 8),
+    basemap: null,                                   // -> gray graticule BEV
+    route_total_len_m: route_llh.length > 1 ? llhPathLenM(route_llh) : null,
+    config: (projection.meta && projection.meta.config) || {},
+    status_message: (projection.status && projection.status.message) || "",
+    frames,
+    verdict: null,
+  };
+};
+
+// Config for pre-mode rendering: the look-ahead window comes from the file's
+// meta.config (NOT the disabled sliders).
+function preConfig() {
+  const cf = (STATE.case && STATE.case.config) || {};
+  return Object.assign({}, ProjectRoute.DEFAULT_CONFIG, {
+    strategy: cf.strategy || "human_centered",
+    behind_m: cf.behind_m != null ? cf.behind_m : 5,
+    ahead_m: cf.ahead_m != null ? cf.ahead_m : 40,
+  });
+}
+
+// Fit a WGS-84 [lat,lon] set into a canvas (Web-Mercator, north-up).
+function buildLLTransform(cv, llhList, pad = 14) {
+  const z = 18;
+  let minx = 1e18, miny = 1e18, maxx = -1e18, maxy = -1e18;
+  for (const [la, lo] of llhList) {
+    const p = mercatorGlobalPx(lo, la, z);
+    minx = Math.min(minx, p.x); maxx = Math.max(maxx, p.x);
+    miny = Math.min(miny, p.y); maxy = Math.max(maxy, p.y);
+  }
+  const s = Math.min((cv.width - 2 * pad) / Math.max(maxx - minx, 1e-6),
+                     (cv.height - 2 * pad) / Math.max(maxy - miny, 1e-6));
+  const ox = pad + (cv.width - 2 * pad - (maxx - minx) * s) / 2;
+  const oy = pad + (cv.height - 2 * pad - (maxy - miny) * s) / 2;
+  return { z, toX: (gx) => ox + (gx - minx) * s, toY: (gy) => oy + (gy - miny) * s };
+}
+
+// Panorama for pre mode: planned route (blue) + numbered waypoints (red) in
+// Web-Mercator, plus the current-frame position dot when withDot.
+function drawPanoramaPre(withDot) {
+  const c = STATE.case, cv = document.getElementById("panorama");
+  const ctx = cv.getContext("2d");
+  ctx.clearRect(0, 0, cv.width, cv.height);
+  const all = (c.route_llh || []).concat(c.ego_track_llh || []);
+  if (!all.length) return;
+  const T = buildLLTransform(cv, all);
+  if (c.route_llh && c.route_llh.length) {
+    ctx.strokeStyle = "#4477cc"; ctx.lineWidth = 2; ctx.beginPath();
+    c.route_llh.forEach(([la, lo], i) => {
+      const p = llToCanvas(T, lo, la);
+      if (i === 0) ctx.moveTo(p.x, p.y); else ctx.lineTo(p.x, p.y);
+    });
+    ctx.stroke();
+  }
+  if (c.route_waypoints && c.route_waypoints.length) {
+    ctx.fillStyle = "#cc3a3a"; ctx.font = "bold 12px sans-serif";
+    c.route_waypoints.forEach(([la, lo], k) => {
+      const p = llToCanvas(T, lo, la);
+      ctx.beginPath(); ctx.arc(p.x, p.y, 3, 0, 2 * Math.PI); ctx.fill();
+      ctx.fillText(String(k), p.x + 5, p.y - 5);
+    });
+  }
+  if (withDot) {
+    const f = c.frames[STATE.frame];
+    const p = llToCanvas(T, f.meas_ll.lon, f.meas_ll.lat);
+    ctx.fillStyle = "#111";
+    ctx.beginPath(); ctx.arc(p.x, p.y, 3, 0, 2 * Math.PI); ctx.fill();
+  }
+}
+
+// Driver view for pre mode (top-down): the file's path (green) + the real
+// driven trajectory (orange dashed) in the current body frame + car at origin.
+function drawDriverPre(cv, f) {
+  const c = STATE.case;
+  const ctx = cv.getContext("2d");
+  ctx.clearRect(0, 0, cv.width, cv.height);
+  const cfg = preConfig();
+  const behindLive = cfg.behind_m, aheadLive = cfg.ahead_m;
+  const w = cv.width, h = cv.height;
+  const ppm = (h - 20) / (aheadLive + behindLive);
+  const toX = (by) => w / 2 - by * ppm;
+  const toY = (bx) => h - 10 - (bx + behindLive) * ppm;
+  const cur = f.meas_pose, yawUse = f.meas_pose.h;   // overlay in the vehicle frame
+  // real driven trajectory (orange dashed)
+  ctx.strokeStyle = "rgba(230,140,0,0.9)"; ctx.lineWidth = 2; ctx.setLineDash([5, 4]);
+  ctx.beginPath();
+  let prevb = null;
+  for (let i = 0; i < c.frames.length; i++) {
+    const g = c.frames[i].meas_pose; if (!g) continue;
+    const b = worldToBody(cur.e, cur.n, g.e, g.n, yawUse);
+    if (b.x < -behindLive || b.x > aheadLive) { prevb = null; continue; }
+    const x = toX(b.y), y = toY(b.x);
+    if (!prevb || Math.hypot(b.x - prevb.x, b.y - prevb.y) > 3.0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+    prevb = b;
+  }
+  ctx.stroke(); ctx.setLineDash([]);
+  // generated path straight from the file (green)
+  ctx.strokeStyle = "#2e9e5b"; ctx.lineWidth = 3; ctx.beginPath();
+  f.path.forEach(([bx, by], i) => {
+    const x = toX(by), y = toY(bx);
+    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  });
+  ctx.stroke();
+  // car at origin
+  ctx.fillStyle = "#cc3a3a"; ctx.fillRect(toX(0.9), toY(1.8), 1.8 * ppm, 3.6 * ppm);
+  ctx.font = "11px sans-serif";
+  ctx.fillStyle = "#2e9e5b"; ctx.fillText("— pre-processed path", 8, 16);
+  ctx.fillStyle = "rgba(230,140,0,0.95)"; ctx.fillText("- - real trajectory", 8, 30);
+  if (f.end_flag) {
+    ctx.fillStyle = "#cc3a3a"; ctx.font = "12px sans-serif";
+    ctx.fillText("route ends", 8, 44);
+  }
+}
+
+// Install a pre-processed case from already-parsed JSON, then render. Split out
+// of handlePreFolder so it can be driven without a File object (tests).
+function loadPreCase(projection, plannedRoute, folderName) {
+  STATE.case = buildPreCase(projection, plannedRoute, folderName);
+  STATE.frame = 0; STATE.playing = false; STATE.offline = null; STATE.basemapImgs = null;
+  BEV_STATIC = null; BEVREAL_STATIC = null; BEVREAL_T = null;
+  const sc = document.getElementById("scrubber");
+  sc.max = STATE.case.frames.length - 1; sc.value = 0;
+  applyPreMode(true);
+  updateOfflineButton();
+  renderFrame();
+  return STATE.case;
+}
+window.loadPreCase = loadPreCase;
+
+// Read the picked folder's files (client-side) and render.
+async function handlePreFolder(files) {
+  const el = document.getElementById("pre-status");
+  const byName = {};
+  for (const f of files) {
+    const base = (f.name || "").split("/").pop();
+    if (!(base in byName)) byName[base] = f;
+  }
+  const projFile = byName["routing_projection.json"];
+  if (!projFile) {
+    el.textContent = "routing_projection.json not found in the selected folder.";
+    return;
+  }
+  let projection;
+  try { projection = JSON.parse(await projFile.text()); }
+  catch (e) { el.textContent = "Failed to parse routing_projection.json: " + e; return; }
+  let plannedRoute = null;
+  const routeFile = byName["planned_route.json"];
+  if (routeFile) { try { plannedRoute = JSON.parse(await routeFile.text()); } catch (e) { plannedRoute = null; } }
+  if (!projection.frames || !projection.frames.length) {
+    const m = projection.status && projection.status.message;
+    el.textContent = "No frames in routing_projection.json." + (m ? " " + m : "");
+    return;
+  }
+  const folderName = (files[0] && files[0].webkitRelativePath)
+    ? files[0].webkitRelativePath.split("/")[0] : "pre-processed";
+  loadPreCase(projection, plannedRoute, folderName);
+  let msg = `Loaded "${folderName}" — ${STATE.case.frames.length} frames, `
+    + `strategy "${STATE.case.config.strategy || "?"}".`;
+  if (!plannedRoute) msg += " (planned_route.json missing — route & progress omitted.)";
+  else if (projection.status && projection.status.generated === false)
+    msg += " Note: status.generated=false — " + (projection.status.message || "");
+  el.textContent = msg;
+  renderFrame();
+}
 
 // ---- offscreen static layers (anti-flicker) ----
 let BEV_STATIC = null, BEV_T = null;
@@ -377,7 +643,13 @@ function drawDriver() {
   ctx.clearRect(0, 0, cv.width, cv.height);
   const f = c.frames[STATE.frame];
   if (!f.meas_pose) return;
-  if (document.getElementById("persp-toggle").checked) { drawWindshield(ctx, f, currentConfig(), null); return; }
+  const persp = document.getElementById("persp-toggle").checked;
+  if (c.mode === "pre") {
+    if (persp) drawWindshield(ctx, f, preConfig(), null);
+    else drawDriverPre(cv, f);
+    return;
+  }
+  if (persp) { drawWindshield(ctx, f, currentConfig(), null); return; }
   drawDriverTopDown(cv, f, currentConfig(), null);
 }
 
@@ -539,7 +811,9 @@ function drawWindshield(ctx, f, cfg, label) {
 
   // route ribbon: edges offset +/- half_width in the body frame
   const HW = PERSP.half_width;
-  const livePts = computeBodyPath(STATE.case, STATE.frame, cfg).pts.filter(p => p.x >= 0);
+  const livePts = (STATE.case.mode === "pre")
+    ? f.path.map(([x, y]) => ({ x, y })).filter(p => p.x >= 0)   // path straight from file
+    : computeBodyPath(STATE.case, STATE.frame, cfg).pts.filter(p => p.x >= 0);
   const off = (!label) ? offlineFramePath(STATE.frame) : null;
   const offFwd = off ? off.filter(p => p.x >= 0) : null;
   const pts = offFwd || livePts;   // ribbon = offline path when loaded, else live
@@ -600,8 +874,8 @@ function drawWindshield(ctx, f, cfg, label) {
 
 function renderFrame() {
   const c = STATE.case; if (!c) return;
-  if (STATE.case.mode === "real") drawBevReal(); else drawBev();
-  if (document.getElementById("compare-toggle").checked) drawCompare();
+  if (c.mode === "real" || c.mode === "pre") drawBevReal(); else drawBev();
+  if (c.mode !== "pre" && document.getElementById("compare-toggle").checked) drawCompare();
   else drawDriver();
   updateTelemetry(); drawPanoramaDot();
   document.getElementById("scrubber").value = STATE.frame;
@@ -610,6 +884,7 @@ function renderFrame() {
 }
 
 function drawPanoramaDot() {
+  if (STATE.case && STATE.case.mode === "pre") { drawPanoramaPre(true); return; }
   drawPanorama();  // static redraw (cheap) then dot
   const c = STATE.case, cv = document.getElementById("panorama");
   const ctx = cv.getContext("2d");
@@ -630,12 +905,18 @@ function updateTelemetry() {
   set("tm-pos", `(${f.meas_pose.e.toFixed(2)}, ${f.meas_pose.n.toFixed(2)})`);
   set("tm-estdev", f.est_lat_dev == null ? "–" : `${f.est_lat_dev.toFixed(3)} m`);
   set("tm-truedev", f.true_lat_dev == null ? "–" : `${f.true_lat_dev.toFixed(3)} m`);
-  const lastS = c.route.s[c.route.s.length - 1];
-  set("tm-progress", f.cursor_s == null ? "–" : `${(f.cursor_s / lastS * 100).toFixed(1)}%`);
+  if (c.mode === "pre") {
+    const L = c.route_total_len_m;
+    set("tm-progress", (f.cursor_s == null || !L) ? "–" : `${(f.cursor_s / L * 100).toFixed(1)}%`);
+  } else {
+    const lastS = c.route.s[c.route.s.length - 1];
+    set("tm-progress", f.cursor_s == null ? "–" : `${(f.cursor_s / lastS * 100).toFixed(1)}%`);
+  }
   set("tm-seg", f.matched_seg == null ? "–" : String(f.matched_seg));
   set("tm-frame", `${STATE.frame} / ${c.frames.length - 1}`);
   const v = c.verdict;
-  set("tm-verdict", v ? `${v.passed ? "PASS" : "FAIL"} (mis ${v.mismatches})` : "— (real data)");
+  set("tm-verdict", c.mode === "pre" ? "— (pre-processed)"
+    : v ? `${v.passed ? "PASS" : "FAIL"} (mis ${v.mismatches})` : "— (real data)");
 }
 
 // --- Offline (Python) processing ----------------------------------------
@@ -750,5 +1031,8 @@ window.addEventListener("DOMContentLoaded", () => {
     };
   }
   document.getElementById("btn-offline").onclick = runOffline;
+  document.getElementById("btn-pre-folder").onclick = () =>
+    document.getElementById("pre-folder").click();
+  document.getElementById("pre-folder").onchange = (ev) => handlePreFolder(ev.target.files);
   updateOfflineButton();
 });

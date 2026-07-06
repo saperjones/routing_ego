@@ -12,8 +12,14 @@
     <div id="tabs">
       <button id="tab-real" class="tab active">Real data</button>
       <button id="tab-sim" class="tab">Simulation</button>
+      <button id="tab-pre" class="tab">Pre-processed</button>
     </div>
-    <h2>Test cases</h2>
+    <div id="pre-picker" style="display:none">
+      <button id="btn-pre-folder">Choose folder…</button>
+      <input type="file" id="pre-folder" webkitdirectory directory multiple style="display:none">
+      <div id="pre-status">Choose a folder containing routing_projection.json + planned_route.json.</div>
+    </div>
+    <h2 id="cases-head">Test cases</h2>
     <ul id="case-list"></ul>
     <h2>Route panorama</h2>
     <canvas id="panorama" width="320" height="240"></canvas>
@@ -49,6 +55,7 @@
   </main>
   <aside id="right">
     <h2>Projection</h2>
+    <div id="pre-config" style="display:none"></div>
     <div id="panel">
       <label class="ctl-row">Algorithm
         <select id="algo-select">

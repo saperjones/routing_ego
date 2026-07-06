@@ -11,6 +11,13 @@ canvas { background: #fff; border: 1px solid #ccd; display: block; }
 #tabs .tab { flex: 1; padding: 6px 8px; border: 1px solid #ccd; background: #eef0f3;
   cursor: pointer; border-radius: 4px 4px 0 0; font-weight: 600; }
 #tabs .tab.active { background: #d3e0f5; border-bottom-color: #d3e0f5; }
+#pre-picker { margin: 0 0 12px; }
+#pre-picker #btn-pre-folder { padding: 6px 12px; border: 1px solid #ccd; border-radius: 4px;
+  background: #eef0f3; cursor: pointer; font: inherit; font-weight: 600; }
+#pre-picker #pre-status { margin-top: 8px; font-size: 12px; color: #556; line-height: 1.5; }
+#pre-config { font-size: 11px; color: #556; background: #eef2f8; border: 1px solid #d7e0ee;
+  border-radius: 4px; padding: 6px 8px; margin-bottom: 10px; line-height: 1.4; }
+#panel:disabled, #panel select:disabled, #panel input:disabled { opacity: .45; cursor: not-allowed; }
 #case-list { list-style: none; padding: 0; margin: 0 0 12px; }
 #case-list li { padding: 5px 8px; cursor: pointer; border-radius: 4px; }
 #case-list li:hover { background: #e6ebf2; }

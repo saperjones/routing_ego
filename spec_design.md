@@ -372,6 +372,38 @@ The behind-stub is never smoothed. See `docs/project_route_function.md` for the 
   `docs/superpowers/specs/2026-07-03-real-data-osm-design.md`; plan:
   `docs/superpowers/plans/2026-07-03-real-data-osm.md`.
 
+- **Pre-processed viewer tab (offline-output verification):** a third left-panel
+  tab, **Pre-processed**, lets a user pick a folder of a colleague's offline
+  output (`ego_route_llh.json` + `planned_route.json` + `routing_projection.json`,
+  where `routing_projection.json` is the verbatim output of
+  `offline_processing_routing_projection`). The folder is chosen with a native
+  browser folder picker (`<input webkitdirectory>`); files are read **client-side**
+  and parsed. `window.buildPreCase(projection, plannedRoute, folderName)` assembles
+  a synthetic in-memory "case" (`mode:"pre"`) that the existing real-data renderers
+  consume unchanged, so **no algorithm is re-run** — the per-frame body-frame
+  `path` is read straight from the file.
+  - **Coordinate fact:** `routing_projection.json`'s `pose.lat/lon` is already
+    **WGS-84** (the offline pipeline converted GCJ-02→WGS-84), matching
+    `planned_route.json`'s route. So the BEV needs **no** in-browser GCJ-02
+    conversion; only two of the three files are used (`ego_route_llh.json` — GCJ-02,
+    redundant — is read only to validate the folder shape).
+  - **Views:** the **BEV** reuses the real-data renderer with `basemap:null` →
+    gray graticule (no OSM tiles for a picked folder), drawing the planned route
+    (blue) + ego track from per-frame `pose.lat/lon` (black) + arrows + per-frame
+    car marker. The **driver view** (`drawDriverPre`) draws the file's `path`
+    (green) plus the real driven trajectory (orange dashed) reconstructed from the
+    per-frame poses; the look-ahead window comes from the file's `meta.config`, not
+    the sliders. The **panorama** draws the route + numbered waypoints + position
+    dot in Web-Mercator.
+  - **Controls:** in pre mode the right-panel algorithm selector + sliders +
+    compare-all + Test-offline are **disabled** (the path is fixed by the file); a
+    read-only caption shows the config used (`strategy=human_centered, ahead=…`).
+    Telemetry shows `verdict "— (pre-processed)"`, no true-lat-dev, and progress
+    from `cursor_s / route_total_len_m`.
+  - Design: `docs/superpowers/specs/2026-07-06-preprocessed-viewer-tab-design.md`;
+    e2e: `tests/e2e/test_preprocessed_e2e.py` (fixture
+    `tests/e2e/fixtures/preproc/`).
+
 ## 7. TBD
 
 - ~~Exact default pinhole camera parameters~~ — *resolved:* the perspective view uses `PERSP` in `viewer.js` (height 1.4 m, pitch 10°, HFOV 70°, principal point centered, ribbon half-width 0.7 m); still off the acceptance path.
